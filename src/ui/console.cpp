@@ -366,7 +366,7 @@ void do_login()
 // 全部只读展示(地址/推流码可复制),用户在 OBS「设置→直播」里自行填写。
 // 保持的那条轴:插件从不点 OBS「开始直播」。
 
-// M1b 断流找回(契约 §7): 服务端仍认为在播时找回推流地址/密钥并写回 OBS 服务。
+// M1b 断流找回(契约 §7): 服务端仍认为在播时找回推流地址/密钥,仅展示(ADR-0005)。
 // 官方序: get_stream_by_roomId 直接给 data.rtmp{addr,code};取不到再问
 // GetUpStreamRtmp(can_change 时用 urls[0],密钥用本地留存的推流码)。
 void do_recover_stream()
@@ -978,7 +978,7 @@ obs_properties_t *console_properties(void *data)
 	add_action_button(props, "btn_start_live_backup", "开播(含备流)", ACT_START_LIVE_BACKUP,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
 	add_action_button(props, "btn_stop_live", "停播", ACT_STOP_LIVE, !g_busy && cfg.streaming);
-	// M1b: 仅"服务端在播而本地未推流"时可用(恢复=找回地址写回服务,不碰推流按钮)。
+	// M1b: 仅"服务端在播而本地未推流"时可用(恢复=找回地址后展示,不碰推流按钮/OBS 配置)。
 	add_action_button(props, "btn_recover", "恢复推流", ACT_RECOVER,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming &&
 				  g_session_in_progress);
