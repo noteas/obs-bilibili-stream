@@ -141,15 +141,16 @@ GET <data.url> = https://passport.biligame.com/x/passport-login/web/crossDomain?
 
 ### 请求
 ```
-GET https://passport.bilibili.com/x/passport-login/web/sso/list
+GET https://passport.bilibili.com/x/passport-login/web/sso/list?csrf=<bili_jct>
 ```
 成功后逐个跟随返回的跳转 URL。
 
 ### 响应
-SSO 跳转 URL 列表(字段名未钉死)→ 每个 URL 一次 302 刷新对应域 Cookie。
+`data.sso`: **URL 字符串数组**(H5 一手代码钉死:`Yy()` 携 `csrf=getCookie(bili_jct)` 请求,
+`Wy()` 取 `code==0` 后遍历 `data.sso` 逐 URL 发请求刷新对应域 Cookie)。
 
 ### 证据
-- 官方: E-06(H5 端点清单)。仓库: ❌ 无(B3)。
+- 官方: E-06(H5 端点清单)+ E-06 JS 反混淆(`Wy`/`Yy` 函数体, `data.sso.map`)。仓库: ❌ 无(B3)。
 
 ## 2.5 captcha(登录风控, geetest4)
 

@@ -25,6 +25,11 @@ public:
 
 	static HttpResponse get(const std::string &url, long timeout_ms = 10000);
 	static HttpResponse post(const std::string &url, const std::string &data, long timeout_ms = 10000);
+	// GET that follows redirects (default get()/post() never follow: callers
+	// consume 302 Set-Cookies directly, e.g. the crossDomain ticket hop). SSO
+	// propagation needs each domain's full 302 chain so every hop's cookies
+	// reach the jar.
+	static HttpResponse get_following(const std::string &url, long max_hops = 5, long timeout_ms = 10000);
 
 	// Runs `work` on the HTTP worker thread, so a blocking network call can never
 	// stall the OBS UI thread, and delivers `done` on the OBS UI thread through

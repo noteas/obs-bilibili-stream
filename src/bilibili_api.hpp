@@ -21,6 +21,9 @@ struct Config {
 	std::string rtmp_code;
 	int part_id = 2;
 	int area_id = 86;
+	// 隐藏配置(无 UI,手改 config.json):true = 走 Web 老端点
+	// (room_id_by_uid / Room/update),默认 false = 官方端点(契约 §3.1/§4.2/§4.3)。
+	bool use_legacy_endpoints = false;
 };
 
 // Endpoints never carry identity arguments: cookies, UA and client_traceid are
@@ -47,6 +50,19 @@ public:
 	// jar, which we do not have). Injects into the jar and persists; failures
 	// are logged only — every current endpoint tolerates a missing buvid3.
 	static void fetch_buvid();
+	// B3 (contract §2.4): cross-domain login propagation. GET sso/list
+	// (csrf=bili_jct) → GET every data.sso[] URL following redirects so each
+	// domain's full 302 chain lands its cookies in the jar. Non-fatal: the
+	// official H5 treats an sso failure as a logged telemetry event, not an error.
+	static bool propagateSso(std::string &message);
+	// getHomePageLiveVersion (contract §3.4) result, cached process-wide:
+	// build/curr_version are the shared parameter values later signed requests
+	// carry. Worker-thread only (single HTTP queue serializes access).
+	static bool ensureVersionInfo(std::string &message);
+	static long cachedBuild();
+	// §4.3 AnchorChangeRoomArea (播中改分区): room_id+platform=pc_link+build+area_id
+	// +csrf+sign, all four literals builder-proven (F-1801e8790).
+	static bool changeRoomArea(const Config &config, int area_id, std::string &message);
 
 private:
 	static std::string appsign(const std::vector<std::pair<std::string, std::string>> &params,

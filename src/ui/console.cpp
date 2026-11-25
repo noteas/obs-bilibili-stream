@@ -184,6 +184,11 @@ void refresh_login_chain()
 			if (result->loggedIn)
 				result->roomOk =
 					Bili::BiliApi::getRoomIdAndCsrf(result->roomId, result->csrf, result->message);
+			if (result->roomOk) {
+				// B3: 官方 H5 登录成功后刷新全域 Cookie;失败不影响登录态(仅日志)。
+				std::string ssoMessage;
+				Bili::BiliApi::propagateSso(ssoMessage);
+			}
 		},
 		guarded([result]() {
 			end_action();

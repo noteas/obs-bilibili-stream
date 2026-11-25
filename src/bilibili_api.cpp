@@ -9,6 +9,14 @@
 #include "util/base.h"
 
 namespace Bili {
+// getHomePageLiveVersion cache (contract §3.4: build/curr_version feed the
+// shared parameters of later signed requests). Touched on the single HTTP
+// worker thread only — no locking needed.
+namespace {
+long g_build = 0;
+std::string g_curr_version;
+} // namespace
+
 // Bilibili puts the human readable error text in either "message" or "msg"
 // depending on the endpoint. Accept both instead of showing an empty dialog.
 static std::string jsonErrorMessage(const json11::Json &json)
@@ -279,6 +287,108 @@ json11::Json BiliApi::getPartitionList(std::string &message)
 	return json["data"];
 }
 
+bool BiliApi::ensureVersionInfo(std::string &message)
+{
+	if (g_build != 0 && !g_curr_version.empty())
+		return true;
+
+	std::vector<std::pair<std::string, std::string>> version_params = {{"system_version", "2"},
+									   {"ts", std::to_string(time(nullptr))}};
+	std::string version_query = appsign(version_params, APP_KEY, APP_SECRET);
+	std::string version_url =
+		"https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePageLiveVersion?" +
+		version_query;
+
+	auto version_response = Http::HttpClient::get(version_url);
+	if (version_response.status != 200) {
+		message = "获取直播版本信息失败，状态码: " + std::to_string(version_response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(version_response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "解析直播版本信息失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	g_build = json["data"]["build"].int_value();
+	g_curr_version = json["data"]["curr_version"].string_value();
+	if (g_build == 0 || g_curr_version.empty()) {
+		g_build = 0;
+		g_curr_version.clear();
+		message = "无效的 build 或 curr_version";
+		return false;
+	}
+	obs_log(LOG_INFO, "直播版本信息: build=%ld curr_version=%s", g_build, g_curr_version.c_str());
+	return true;
+}
+
+long BiliApi::cachedBuild()
+{
+	return g_build;
+}
+
+bool BiliApi::propagateSso(std::string &message)
+{
+	const std::string csrf = Http::HttpClient::cookie_value("bili_jct");
+	std::string url = "https://passport.bilibili.com/x/passport-login/web/sso/list";
+	if (!csrf.empty())
+		url += "?csrf=" + csrf;
+	auto response = Http::HttpClient::get(url);
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "SSO 列表获取失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	int followed = 0;
+	for (const auto &entry : json["data"]["sso"].array_items()) {
+		if (!entry.is_string() || entry.string_value().empty())
+			continue;
+		// 每个 URL 的完整 302 链都会向自己的域下发 Cookie;结果本身不关心。
+		Http::HttpClient::get_following(entry.string_value());
+		++followed;
+	}
+	message = "SSO 传播完成(" + std::to_string(followed) + " 个域)";
+	obs_log(LOG_INFO, "%s", message.c_str());
+	return true;
+}
+
+bool BiliApi::changeRoomArea(const Config &config, int area_id, std::string &message)
+{
+	if (config.room_id.empty() || config.csrf_token.empty()) {
+		message = "配置无效: 房间号/CSRF 缺失";
+		return false;
+	}
+	if (!ensureVersionInfo(message))
+		return false;
+
+	std::vector<std::pair<std::string, std::string>> params = {
+		{"room_id", config.room_id},
+		{"platform", "pc_link"},
+		{"build", std::to_string(g_build)},
+		{"area_id", std::to_string(area_id)},
+		{"csrf_token", config.csrf_token},
+		{"csrf", config.csrf_token},
+		{"ts", std::to_string(time(nullptr))},
+	};
+	std::string data = appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::post(
+		"https://api.live.bilibili.com/xlive/app-blink/v2/room/AnchorChangeRoomArea", data);
+	obs_log(LOG_INFO, "改分区: %s", response.data.c_str());
+	if (response.status != 200) {
+		message = "改分区失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "改分区失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	obs_log(LOG_INFO, "分区更新成功: area_id=%d", area_id);
+	return true;
+}
+
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			std::string &face_qr, std::string &mid)
 {
@@ -289,37 +399,10 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		return false;
 	}
 
-	std::vector<std::pair<std::string, std::string>> version_params = {{"system_version", "2"},
-									   {"ts", std::to_string(time(nullptr))}};
-	std::string version_query = appsign(version_params, APP_KEY, APP_SECRET);
-	std::string version_url =
-		"https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePageLiveVersion?" +
-		version_query;
-
-	auto version_response = Http::HttpClient::get(version_url);
-	obs_log(LOG_INFO, "获取直播版本信息: %s", version_response.data.c_str());
-	if (version_response.status != 200) {
-		obs_log(LOG_ERROR, "获取直播版本信息失败，状态码: %ld", version_response.status);
-		message = "获取直播版本信息失败，状态码: " + std::to_string(version_response.status);
+	if (!ensureVersionInfo(message))
 		return false;
-	}
-
-	std::string err;
-	json11::Json json = json11::Json::parse(version_response.data, err);
-	if (!err.empty() || json["code"].int_value() != 0) {
-		const std::string detail = err.empty() ? jsonErrorMessage(json) : err;
-		obs_log(LOG_ERROR, "获取直播版本信息失败: %s", detail.c_str());
-		message = "解析直播版本信息失败: " + detail;
-		return false;
-	}
-
-	long build = json["data"]["build"].int_value();
-	std::string curr_version = json["data"]["curr_version"].string_value();
-	if (build == 0 || curr_version.empty()) {
-		obs_log(LOG_ERROR, "无效的 build 或 curr_version");
-		message = "无效的 build 或 curr_version";
-		return false;
-	}
+	const long build = g_build;
+	const std::string curr_version = g_curr_version;
 
 	std::vector<std::pair<std::string, std::string>> start_params = {{"room_id", config.room_id},
 									 {"platform", "pc_link"},
@@ -340,7 +423,8 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		return false;
 	}
 
-	json = json11::Json::parse(response.data, err);
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty()) {
 		obs_log(LOG_ERROR, "解析开播响应失败: %s", err.c_str());
 		message = "解析开播响应失败: " + err;

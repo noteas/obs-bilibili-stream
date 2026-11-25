@@ -383,7 +383,8 @@ void HttpClient::cleanup()
 	}
 }
 
-HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
+// Shared transport for get()/post()/get_following().
+static HttpResponse perform(const std::string &url, const std::string *body, bool follow_redirects, long timeout_ms)
 {
 	HttpResponse response;
 	response.status = 0;
@@ -396,6 +397,14 @@ HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
 	std::string response_data;
 	std::string response_cookies;
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+	if (body) {
+		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body->c_str());
+	}
+	if (follow_redirects) {
+		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+		curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+	}
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
 	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, headerCallback);
@@ -403,7 +412,7 @@ HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
-	struct curl_slist *header_list = build_fingerprint_headers(false);
+	struct curl_slist *header_list = build_fingerprint_headers(body != nullptr);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
 
 	CURLcode res = curl_easy_perform(curl);
@@ -425,48 +434,20 @@ HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
 	return response;
 }
 
+HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
+{
+	return perform(url, nullptr, false, timeout_ms);
+}
+
+HttpResponse HttpClient::get_following(const std::string &url, long max_hops, long timeout_ms)
+{
+	(void)max_hops; // capped by CURLOPT_MAXREDIRS in perform()
+	return perform(url, nullptr, true, timeout_ms);
+}
+
 HttpResponse HttpClient::post(const std::string &url, const std::string &data, long timeout_ms)
 {
-	HttpResponse response;
-	response.status = 0;
-	CURL *curl = curl_easy_init();
-	if (!curl) {
-		response.data = "CURL 初始化失败";
-		return response;
-	}
-
-	std::string response_data;
-	std::string response_cookies;
-	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-	curl_easy_setopt(curl, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
-	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, headerCallback);
-	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_cookies);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-	struct curl_slist *header_list = build_fingerprint_headers(true);
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
-
-	CURLcode res = curl_easy_perform(curl);
-	if (res != CURLE_OK) {
-		response.timeout = (res == CURLE_OPERATION_TIMEDOUT);
-		response.data = std::string("网络错误: ") + curl_easy_strerror(res);
-		response.status = 0;
-		curl_slist_free_all(header_list);
-		curl_easy_cleanup(curl);
-		return response;
-	}
-
-	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
-	response.data = std::move(response_data);
-	response.cookies = std::move(response_cookies);
-	curl_slist_free_all(header_list);
-	curl_easy_cleanup(curl);
-	absorb_response_cookies(response.cookies);
-	return response;
+	return perform(url, &data, false, timeout_ms);
 }
 
 void HttpClient::runAsync(std::function<void()> work, std::function<void()> done)

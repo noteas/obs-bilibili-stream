@@ -36,6 +36,7 @@ void ConfigManager::load()
 	m_config.rtmp_code = obs_data_get_string(settings, "rtmp_code");
 	m_config.part_id = static_cast<int>(obs_data_get_int(settings, "part_id"));
 	m_config.area_id = static_cast<int>(obs_data_get_int(settings, "area_id"));
+	m_config.use_legacy_endpoints = obs_data_get_bool(settings, "use_legacy_endpoints");
 	obs_data_release(settings);
 	bfree(configFile);
 
@@ -63,6 +64,7 @@ void ConfigManager::save()
 	obs_data_set_string(settings, "rtmp_code", m_config.rtmp_code.c_str());
 	obs_data_set_int(settings, "part_id", m_config.part_id);
 	obs_data_set_int(settings, "area_id", m_config.area_id);
+	obs_data_set_bool(settings, "use_legacy_endpoints", m_config.use_legacy_endpoints);
 	std::error_code ec;
 	try {
 		auto configPath = std::filesystem::u8path(configFile);
