@@ -725,6 +725,12 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 									 {"checked", "0"},
 									 {"type", "1"},
 									 {"backup_stream", with_backup ? "1" : "0"}};
+	// U6 探针(隐藏配置,默认空):备流 builder 的 param_9/param_10 字面值只在
+	// app 层,静态不可达;非空才注入,用于用户在场的一次性补钉实测。
+	if (with_backup && !config.backup_stream_type_probe.empty())
+		start_params.push_back({"backup_stream_type", config.backup_stream_type_probe});
+	if (with_backup && !config.stream_biz_probe.empty())
+		start_params.push_back({"stream_biz", config.stream_biz_probe});
 	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
 	if (!config.recommend_protocol.empty())
 		start_params.push_back({"recommend_protocol", config.recommend_protocol});

@@ -40,6 +40,11 @@ struct Config {
 		bool backup = false; // 来自 protocols_backup[]
 	};
 	std::vector<StreamTarget> stream_targets;
+	// 备流参数探针(隐藏配置,不进 UI):备流 builder 的 param_9/param_10 实参
+	// 只在 app 层可见,静态分析不可达。非空才注入,用于一次性实测补钉 U6;
+	// 钉死后收敛为常量。空 = 现状(不猜值)。
+	std::string backup_stream_type_probe;
+	std::string stream_biz_probe;
 	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)
 	std::string rtmp_backup_code;
 };
