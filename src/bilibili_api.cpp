@@ -244,13 +244,34 @@ bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 	return is_login;
 }
 
-bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message)
+bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
+			       bool prefer_official)
 {
 	const std::string dede_user_id = Http::HttpClient::cookie_value("DedeUserID");
 	if (dede_user_id.empty()) {
 		obs_log(LOG_ERROR, "Cookie 中无 DedeUserID");
 		message = "Cookie 中无 DedeUserID";
 		return false;
+	}
+
+	if (prefer_official) {
+		// §3.3 room/GetInfo (builder F-1802b1e60: 业务参数仅 uId, 公共+sign, GET);
+		// parser F-1802b3690 实证回读 data.room_id。需登录态(未登录 -101)。
+		std::string stateMessage;
+		json11::Json data = getRoomInfoByUid(dede_user_id, stateMessage);
+		if (data.is_object()) {
+			const long long rid = (long long)data["room_id"].number_value();
+			if (rid > 0) {
+				room_id = std::to_string(rid);
+				csrf_token = Http::HttpClient::cookie_value("bili_jct");
+				if (!csrf_token.empty())
+					return true;
+				message = "无法从 Cookies 中提取 bili_jct";
+				return false;
+			}
+			stateMessage = "room/GetInfo 响应无有效 room_id";
+		}
+		obs_log(LOG_WARNING, "官方房间引导失败,回退老端点: %s", stateMessage.c_str());
 	}
 
 	std::string url = "https://api.live.bilibili.com/room/v2/Room/room_id_by_uid?uid=" + dede_user_id;
@@ -440,6 +461,29 @@ json11::Json BiliApi::getRoomInfo(const std::string &endpoint, const std::string
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
 		message = endpoint + " 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return json11::Json();
+	}
+	return json["data"];
+}
+
+json11::Json BiliApi::getRoomInfoByUid(const std::string &mid, std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return json11::Json();
+	std::vector<std::pair<std::string, std::string>> params = {{"uId", mid}};
+	auto cp = common_params();
+	params.insert(params.end(), cp.begin(), cp.end());
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?" +
+			  appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "room/GetInfo 失败，状态码: " + std::to_string(response.status);
+		return json11::Json();
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "room/GetInfo 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
 		return json11::Json();
 	}
 	return json["data"];

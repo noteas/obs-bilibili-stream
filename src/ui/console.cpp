@@ -184,8 +184,8 @@ void refresh_login_chain()
 		[result, legacy]() {
 			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
 			if (result->loggedIn)
-				result->roomOk =
-					Bili::BiliApi::getRoomIdAndCsrf(result->roomId, result->csrf, result->message);
+				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(
+					result->roomId, result->csrf, result->message, !legacy);
 			if (result->roomOk) {
 				// B3: 官方 H5 登录成功后刷新全域 Cookie;失败不影响登录态(仅日志)。
 				std::string ssoMessage;

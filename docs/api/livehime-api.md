@@ -271,8 +271,8 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 - 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`,值已钉死);
   解析簇 E-10 @0x112c5bb、@0x112c8f6(内部名 `get-room-info`, common_service_impl2.cpp)。
 - 仓库: `getRoomInfo()` 走 getInfoByUser(登录链房间态:场次/锁定);
-  room_id 引导仍用老端点 `room/v2/Room/room_id_by_uid`(B1 部分,官方登录链如何取得
-  首个 room_id 未在端点清单出现——保持引导,待补钉后可替换)。
+  room_id 引导已切 app-blink room/GetInfo(§3.3,B1 关闭),失败回退
+  `room/v2/Room/room_id_by_uid`(仅 WARNING,`use_legacy_endpoints=true` 时直走老端点)。
 
 ## 3.3 app-blink room/GetInfo
 
@@ -281,9 +281,22 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 GET https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?uId=<mid>&<公共+sign>
 ```
 
-### 响应: 房间聚合信息(字段簇与 §3.1 同族, 完整清单未钉死)。
+### 响应(`data`, 解析器 F-1802b3690 钉死, 2026-11-25)
+```
+room_id ★, live_status, live_key, title, have_live, identify_status,
+lock_status_v2, lock_time, lock_reason, area_v2_id, area_v2_name, parent_id,
+master_level/score/next_level_score, medal_status/name, guard_count,
+guard_warn.{is_warn,expired,will_expired}, join_slide, fans_club,
+appointment_before_live, anchor_content, content_is_open, watched_show,
+ab.pc_dm_scroll_ab, hot_rank_info_v3, area_rank_info_v2, rank_entrance_info,
+room_rank_info, revenue_material_md5.wealth, rcost, fc_num, dm_length_max,
+xtemplate_config, multi_screen_info.double_screen_visible,
+multi_user_conn.entrances, collaboration_live_display_info
+```
+需登录态(未登录 -101,实网实证)。`room_id` 即房间引导正解(B1)。
 
-### 证据: builder F-1802b1e60(字面量 `uId`+sign)。仓库 ❌。
+### 证据: builder F-1802b1e60(字面量 `uId`+sign;派发回调=F-1802b3690)。
+仓库: `getRoomInfoByUid()`;登录链默认先走本端点,失败 WARNING 后回退老端点。
 
 ## 3.4 getHomePageLiveVersion
 
@@ -669,8 +682,9 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | U5 | login-v3 请求参数集 | §2.7 |
 | — | get_stream_by_roomId 响应字段;R4 封面上传参数 | §7.1/§4.5 |
 
-已钉死(2026-11-25, Ghidra 定点反编译 M0cDump/Dump2 + 公开端点实网):
+已钉死(2026-11-25, Ghidra 定点反编译 M0cDump/Dump2/Dump3 + 公开端点实网):
 `device="pc"`(builder 内联 2 字节字面量)、公共参数注入器=FUN_180063f70(键集见 §1.1)、
-UpdatePreLiveInfo 注入条件(§4.2 管线例外)、`mobi_app="pc_link"`(builder 内联 7 字节字面量)。
+UpdatePreLiveInfo 注入条件(§4.2 管线例外)、`mobi_app="pc_link"`(builder 内联 7 字节字面量)、
+room/GetInfo 响应字段清单含 `data.room_id`(解析器 F-1802b3690,§3.3)。
 
 复现对应功能前必须先补对应 U 项(方法见 docs/roadmap.md)。

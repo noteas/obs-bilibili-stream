@@ -38,7 +38,12 @@ public:
 	// the URL-query fallback), not a returned cookie string.
 	static bool qrLogin(const std::string &qr_key, std::string &message);
 	static bool checkLoginStatus(std::string &message, std::string &mid);
-	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message);
+	// Room bootstrap. Official = app-blink room/GetInfo?uId=<mid> (§3.3; parser
+	// F-1802b3690 reads data.room_id, proven); legacy = room/v2/Room/room_id_by_uid.
+	// With prefer_official, a GetInfo failure logs a warning and falls back to the
+	// legacy endpoint (transparent degradation, no silent endpoint swaps).
+	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
+				     bool prefer_official = true);
 	static json11::Json getPartitionList(std::string &message);
 	static bool startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			      std::string &face_qr, std::string &mid);
@@ -68,6 +73,10 @@ public:
 	// room_id — the official parse cluster reads no room_id field back) or
 	// "getInfoByRoom". Returns data on success, null Json + message on failure.
 	static json11::Json getRoomInfo(const std::string &endpoint, const std::string &room_id, std::string &message);
+	// §3.3 app-blink room/GetInfo (builder F-1802b1e60): uId-only business param,
+	// session-required; parser F-1802b3690 proven to read data.room_id (plus the
+	// §3.1 family incl. live_status/live_key/title). Returns data or null Json.
+	static json11::Json getRoomInfoByUid(const std::string &mid, std::string &message);
 	// §4.2 UpdatePreLiveInfo (播前改标题等): sign covers common params ONLY, then
 	// mobi_app=pc_link + title (non-empty) + csrf pair are appended (F-180151c10).
 	static bool updatePreLiveInfo(const Config &config, const std::string &title, std::string &message);
