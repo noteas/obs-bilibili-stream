@@ -2,6 +2,8 @@
 #include <obs-module.h>
 #include <filesystem>
 
+#include "json11/json11.hpp"
+
 namespace Core {
 ConfigManager::ConfigManager() {}
 
@@ -42,6 +44,22 @@ void ConfigManager::load()
 	m_config.bitrate_kbps = static_cast<int>(obs_data_get_int(settings, "bitrate_kbps"));
 	m_config.rtmp_backup_addr = obs_data_get_string(settings, "rtmp_backup_addr");
 	m_config.rtmp_backup_code = obs_data_get_string(settings, "rtmp_backup_code");
+	// 线路表(ADR-0005):JSON 数组持久化,便于停播后仍可抄地址。
+	{
+		m_config.stream_targets.clear();
+		std::string err;
+		json11::Json arr = json11::Json::parse(obs_data_get_string(settings, "stream_targets"), err);
+		for (const auto &item : arr.array_items()) {
+			Bili::Config::StreamTarget t;
+			t.protocol = item["protocol"].string_value();
+			t.provider = item["provider"].string_value();
+			t.addr = item["addr"].string_value();
+			t.key = item["key"].string_value();
+			t.backup = item["backup"].bool_value();
+			if (!t.addr.empty())
+				m_config.stream_targets.push_back(t);
+		}
+	}
 	obs_data_release(settings);
 	bfree(configFile);
 
@@ -75,6 +93,18 @@ void ConfigManager::save()
 	obs_data_set_int(settings, "bitrate_kbps", m_config.bitrate_kbps);
 	obs_data_set_string(settings, "rtmp_backup_addr", m_config.rtmp_backup_addr.c_str());
 	obs_data_set_string(settings, "rtmp_backup_code", m_config.rtmp_backup_code.c_str());
+	{
+		std::vector<json11::Json> items;
+		for (const auto &t : m_config.stream_targets) {
+			items.push_back(json11::Json::object{{"protocol", t.protocol},
+							     {"provider", t.provider},
+							     {"addr", t.addr},
+							     {"key", t.key},
+							     {"backup", t.backup}});
+		}
+		const std::string json = json11::Json(items).dump();
+		obs_data_set_string(settings, "stream_targets", json.c_str());
+	}
 	std::error_code ec;
 	try {
 		auto configPath = std::filesystem::u8path(configFile);

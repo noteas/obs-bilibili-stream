@@ -29,8 +29,18 @@ struct Config {
 	// 上游选点透传(§5.7):非空才随 startLive 注入;插件不做测速本身。
 	std::string recommend_protocol;
 	std::string recommend_ip;
-	// 备流(M3):开播响应 protocols_backup 回填;「切到备流」=服务改写为备流地址。
-	std::string rtmp_backup_addr;
+	// 推流线路(M1/U1):开播响应的 protocols[]/protocols_backup[] 全量保存,
+	// 控制台逐条只读展示(地址与推流码均可复制)。插件**不改** OBS 服务配置,
+	// 用哪条线路、何时切、怎么填 OBS 全由用户决定(ADR-0005,推翻 ADR-0001 写回链)。
+	struct StreamTarget {
+		std::string protocol; // rtmp / srt / bmtsrt / bmt …(官方给什么展示什么)
+		std::string provider; // txy / qn / …(可空)
+		std::string addr;
+		std::string key;     // rtmp:与 live_key 配对;srt:可能为空(鉴权在 URL 内)
+		bool backup = false; // 来自 protocols_backup[]
+	};
+	std::vector<StreamTarget> stream_targets;
+	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)
 	std::string rtmp_backup_code;
 };
 

@@ -490,7 +490,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 - 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
   (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、
   notice 阻断 B4①、v_voucher 透出);第7步 `protocols_backup[]` 与 live_key 配对存储,
-  「切到备流」经服务改写落地(M3,切换式)。**多路/xcode_stream 为明确不做项**(联播范围外)。
+  备流与多协议线路**全部只读展示**(`config.stream_targets`,地址/推流码可复制),
+  插件不写 OBS 配置(ADR-0005)。**多路/xcode_stream 为明确不做项**(联播范围外)。
 
 ## 4.2 UpdatePreLiveInfo(播前改资料)
 

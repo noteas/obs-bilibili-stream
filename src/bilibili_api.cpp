@@ -852,19 +852,26 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		if (!available.empty())
 			obs_log(LOG_INFO, "startLive 可用协议: %s", available.c_str());
 	}
+	// 全量收集线路(ADR-0005):官方给什么展示什么,控制台逐条供用户抄走。
+	config.stream_targets.clear();
 	bool valid = false;
 	for (const auto &target : json["data"]["protocols"].array_items()) {
-		const std::string name = target["protocol"].string_value().empty() ? "rtmp"
-										  : target["protocol"].string_value();
-		if (name != "rtmp")
-			continue; // 多协议选择属 M1 后续;此处取默认 rtmp
-		rtmp_addr = target["addr"].string_value();
-		rtmp_code = live_key;
-		valid = !rtmp_addr.empty();
-		obs_log(LOG_INFO, "开播协议目标: protocol=rtmp provider=%s new_link=%s",
-			target["provider"].string_value().c_str(),
-			target["new_link"].bool_value() ? "1" : "0");
-		break;
+		Config::StreamTarget t;
+		t.protocol = target["protocol"].string_value().empty() ? "rtmp"
+								       : target["protocol"].string_value();
+		t.provider = target["provider"].string_value();
+		t.addr = target["addr"].string_value();
+		t.key = live_key;
+		obs_log(LOG_INFO, "开播线路: protocol=%s provider=%s new_link=%s addr=%s",
+			t.protocol.c_str(), t.provider.c_str(),
+			target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
+		if (!t.addr.empty())
+			config.stream_targets.push_back(t);
+		if (t.protocol == "rtmp" && !valid) {
+			rtmp_addr = t.addr;
+			rtmp_code = live_key;
+			valid = !rtmp_addr.empty();
+		}
 	}
 	if (!valid && rtmp_addr.empty()) {
 		const json11::Json rtmp = json["data"]["rtmp"];
@@ -884,18 +891,25 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	// 步骤7: protocols_backup[] 与 protocols[] 同构、与 live_key 配对(§4.1 解析序)。
 	// 备流语义=切换式(GLOSSARY):这里只存储,改写服务由控制台动作触发。
 	if (backup_addr && backup_code) {
+		bool backup_rtmp = false;
 		for (const auto &target : json["data"]["protocols_backup"].array_items()) {
-			const std::string name = target["protocol"].string_value().empty()
-							   ? "rtmp"
-							   : target["protocol"].string_value();
-			if (name != "rtmp")
-				continue; // 备流多协议留待 U1
-			*backup_addr = target["addr"].string_value();
-			*backup_code = live_key;
-			obs_log(LOG_INFO, "备流目标: provider=%s new_link=%s",
-				target["provider"].string_value().c_str(),
-				target["new_link"].bool_value() ? "1" : "0");
-			break;
+			Config::StreamTarget t;
+			t.protocol = target["protocol"].string_value().empty() ? "rtmp"
+									       : target["protocol"].string_value();
+			t.provider = target["provider"].string_value();
+			t.addr = target["addr"].string_value();
+			t.key = live_key;
+			t.backup = true;
+			obs_log(LOG_INFO, "备流线路: protocol=%s provider=%s new_link=%s addr=%s",
+				t.protocol.c_str(), t.provider.c_str(),
+				target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
+			if (!t.addr.empty())
+				config.stream_targets.push_back(t);
+			if (t.protocol == "rtmp" && !backup_rtmp && !t.addr.empty()) {
+				*backup_addr = t.addr;
+				*backup_code = live_key;
+				backup_rtmp = true;
+			}
 		}
 		if (backup_addr->empty())
 			obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup rtmp 项(观测: %s)",
