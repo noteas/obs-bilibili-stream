@@ -72,6 +72,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
 | 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试) |
+| 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25):web-cookie 身份通道(SESSDATA,含 LiveHime UA+version/build 全套指纹)被拒;官方直播姬走 app OAuth access_key 通道(§2.6/2.7,插件不做)。插件口径=提示「OBS 停止推流,无推流数分钟后服务端自动结束场次」(同日实测空场次确会被掐) |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
 

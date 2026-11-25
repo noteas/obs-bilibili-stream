@@ -72,7 +72,9 @@ Core::ConfigManager g_config;
 bool g_busy = false;
 std::string g_status;
 int g_status_level = LEVEL_INFO;
-std::string g_stream_info;
+// 当前 OBS 服务配置指向的是否为备流地址(do_switch_backup 置位;开播/停播复位)。
+// 推流地址/推流码以可编辑文本行呈现(可鼠标选中复制,OBS_TEXT_INFO 不可选)。
+bool g_backup_active = false;
 // 服务端仍认为在播(live_status==1)且本地未推流 → "恢复推流"可用(M1b)。
 bool g_session_in_progress = false;
 // 「结束进行中场次」两段式确认:第一次点击置位并改口,再点才发 stopLive。
@@ -451,7 +453,6 @@ void do_recover_stream()
 			cfg.rtmp_code = result->code;
 			g_config.save();
 			set_streaming_service(result->addr, result->code);
-			g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code;
 			g_session_in_progress = false;
 			set_status(LEVEL_INFO,
 				   "已找回进行中场次(来源: " + result->source +
@@ -514,10 +515,7 @@ void do_start_live(bool with_backup)
 					cfg.mid = result->mid;
 				g_config.save();
 				set_streaming_service(result->addr, result->code);
-				g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code +
-						(result->backupAddr.empty()
-							 ? ""
-							 : "\n备流地址: " + result->backupAddr + "(可\"切到备流\")");
+				g_backup_active = false;
 				set_status(LEVEL_INFO, "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流");
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
@@ -545,7 +543,7 @@ void do_switch_backup()
 		return;
 	}
 	set_streaming_service(cfg.rtmp_backup_addr, cfg.rtmp_backup_code);
-	g_stream_info = "推流地址(已切备流): " + cfg.rtmp_backup_addr + "\n推流码: " + cfg.rtmp_backup_code;
+	g_backup_active = true;
 	set_status(LEVEL_WARNING, "服务已切到备流地址——请在 OBS 停止后重新开始直播");
 }
 
@@ -569,7 +567,7 @@ void do_stop_live()
 				// 场次结束,备流地址随场次作废(密钥每场新生成)。
 				g_config.config().rtmp_backup_addr.clear();
 				g_config.config().rtmp_backup_code.clear();
-				g_stream_info.clear();
+				g_backup_active = false;
 				g_config.save();
 				set_status(LEVEL_INFO, "已停播");
 			} else {
@@ -924,8 +922,22 @@ obs_properties_t *console_properties(void *data)
 	// --- 最近操作 ---
 	if (!g_status.empty())
 		add_status_line(props, "st_last", g_status, g_status_level);
-	if (!g_stream_info.empty())
-		obs_properties_add_text(props, "st_stream", g_stream_info.c_str(), OBS_TEXT_INFO);
+	// 推流信息可复制行:OBS_TEXT_INFO 是不可选中的 QLabel,选中复制只能走
+	// 可编辑 OBS_TEXT(值来自已保存场次地址,停播随 cfg.streaming 清零消失)。
+	{
+		const bool backup_shown = g_backup_active && !cfg.rtmp_backup_addr.empty();
+		const std::string shown_addr = backup_shown ? cfg.rtmp_backup_addr : cfg.rtmp_addr;
+		const std::string shown_code = backup_shown ? cfg.rtmp_backup_code : cfg.rtmp_code;
+		if (cfg.streaming && !shown_addr.empty()) {
+			obs_properties_add_text(props, "cp_addr",
+					backup_shown ? "备流推流地址(可选中复制)" : "推流地址(可选中复制)", OBS_TEXT_DEFAULT);
+			obs_data_set_default_string(settings, "cp_addr", shown_addr.c_str());
+			obs_properties_add_text(props, "cp_code", "推流码(可选中复制)", OBS_TEXT_DEFAULT);
+			obs_data_set_default_string(settings, "cp_code", shown_code.c_str());
+		}
+		if (!g_backup_active && !cfg.rtmp_backup_addr.empty())
+			obs_properties_add_text(props, "st_backup", "备流地址已就绪(可\"切到备流\")", OBS_TEXT_INFO);
+	}
 
 	// --- 直播间设置 ---
 	obs_property_t *title =

@@ -921,7 +921,14 @@ bool BiliApi::stopLive(const Config &config, std::string &message)
 	if (!err.empty() || json["code"].int_value() != 0) {
 		const std::string detail = err.empty() ? jsonErrorMessage(json) : err;
 		obs_log(LOG_ERROR, "停止直播失败: %s", detail.c_str());
-		message = "停止直播失败: " + detail;
+		// 60034(实网 2026-11-25):web-cookie 身份通道的关播被服务端政策拦截
+		// (官方直播姬走 app OAuth access_key 通道,插件不做)。无推流数分钟
+		// 后服务端会自动结束场次(同日实测被掐),给出可操作口径。
+		if (json["code"].int_value() == 60034)
+			message = "服务端策略:仅直播姬可关播(60034)。在 OBS 停止推流即可,"
+				  "无推流数分钟后服务端自动结束本场次";
+		else
+			message = "停止直播失败: " + detail;
 		return false;
 	}
 
