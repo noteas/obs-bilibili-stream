@@ -629,6 +629,72 @@ bool BiliApi::getUpStreamRtmp(const std::string &room_id, bool &can_change, std:
 	return true;
 }
 
+json11::Json BiliApi::videoQualityConfig(std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return json11::Json();
+	// F-1802d40f0: sign 覆盖公共参数;bitrate_intervention="1" sign 后追加(§5.4 例外)。
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/upStreamConfig/"
+			  "GetUpStreamVideoQualityConfig?" +
+			  appsign(common_params(), APP_KEY, APP_SECRET) + "&bitrate_intervention=1";
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "GetUpStreamVideoQualityConfig 失败，状态码: " + std::to_string(response.status);
+		return json11::Json();
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "GetUpStreamVideoQualityConfig 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return json11::Json();
+	}
+	return json;
+}
+
+bool BiliApi::canUseH265Encoder(bool &can_enable, std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return false;
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/upStreamConfig/"
+			  "CanUseH265Encoder?" +
+			  appsign(common_params(), APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "CanUseH265Encoder 失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "CanUseH265Encoder 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	can_enable = json["data"]["can_enable"].bool_value(); // F-1802d08c0: 唯一回读字段
+	return true;
+}
+
+bool BiliApi::canUseAv1Encoder(bool &can_hard_encode, std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return false;
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/upStreamConfig/"
+			  "CanUseAV1Encoder?" +
+			  appsign(common_params(), APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "CanUseAV1Encoder 失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "CanUseAV1Encoder 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	can_hard_encode = json["data"]["can_hard_encode"].bool_value(); // F-1802d0f30: 唯一回读字段
+	return true;
+}
+
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			std::string &face_qr, std::string &mid)
 {

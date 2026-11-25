@@ -39,6 +39,7 @@ void ConfigManager::load()
 	m_config.use_legacy_endpoints = obs_data_get_bool(settings, "use_legacy_endpoints");
 	m_config.recommend_protocol = obs_data_get_string(settings, "recommend_protocol");
 	m_config.recommend_ip = obs_data_get_string(settings, "recommend_ip");
+	m_config.bitrate_kbps = static_cast<int>(obs_data_get_int(settings, "bitrate_kbps"));
 	obs_data_release(settings);
 	bfree(configFile);
 
@@ -69,6 +70,7 @@ void ConfigManager::save()
 	obs_data_set_bool(settings, "use_legacy_endpoints", m_config.use_legacy_endpoints);
 	obs_data_set_string(settings, "recommend_protocol", m_config.recommend_protocol.c_str());
 	obs_data_set_string(settings, "recommend_ip", m_config.recommend_ip.c_str());
+	obs_data_set_int(settings, "bitrate_kbps", m_config.bitrate_kbps);
 	std::error_code ec;
 	try {
 		auto configPath = std::filesystem::u8path(configFile);

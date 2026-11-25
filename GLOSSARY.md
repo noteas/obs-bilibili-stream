@@ -53,7 +53,8 @@ _Avoid_: 换地址、自动重连(后者是 OBS 输出层内部重试)
 ### 协商与控制
 
 **质量协商**:
-GetQualityData 拉取账号质量档 → 用户选档 → 插件将档位映射为当前推流输出的视频编码器码率 → QualityCallback 向服务端回执。只写码率,不改编码器类型。
+GetUpStreamVideoQualityConfig 拉取官方推荐/默认码率与分区/会员干预标志(H265/AV1 编码能力同步查询展示)→ 用户设定码率数值 → 插件只写当前推流输出视频编码器的 bitrate,不改编码器类型。服务端无档位枚举、无档位回执。
+_Avoid_: 选档、档位回执、自动换编码器(注:GetQualityData/QualityCallback 是**上行线路质量**探测/回执,不属质量协商,归上行选点)
 
 **上行选点**:
 官方经测速接口得到 `recommend_protocol`/`recommend_ip` 并在开播请求中携带;插件把该二值作为透传参数,测速本身不在插件内做。

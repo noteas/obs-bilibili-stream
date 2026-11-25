@@ -21,6 +21,8 @@ struct Config {
 	std::string rtmp_code;
 	int part_id = 2;
 	int area_id = 86;
+	// 质量协商(§5.4):用户设定的视频码率 kbps;0 = 不干预。应用=写当前视频编码器。
+	int bitrate_kbps = 0;
 	// 隐藏配置(无 UI,手改 config.json):true = 走 Web 老端点
 	// (room_id_by_uid / Room/update),默认 false = 官方端点(契约 §3.1/§4.2/§4.3)。
 	bool use_legacy_endpoints = false;
@@ -100,6 +102,15 @@ public:
 	// message}. 恢复推流前的可推地址查询(配套 §3.1 live_status 判在播)。
 	static bool getUpStreamRtmp(const std::string &room_id, bool &can_change,
 				    std::vector<std::string> &urls, std::string &message);
+	// §5.4 GetUpStreamVideoQualityConfig (视频码率口径): GET, 管线例外——sign 只覆盖
+	// 公共参数,bitrate_intervention="1" 在 sign 后注入 (F-1802d40f0)。顶层带
+	// recommend_bitrate/strategy_source + data.bitrate_config{default_bitrate,
+	// recommend_bitrate_{area,member}_intervention} (解析器 F-1802d5060)。
+	static json11::Json videoQualityConfig(std::string &message);
+	// §5.5 编码能力查询: GET 无业务参数;H265 解析器只读 data.can_enable,
+	// AV1 只读 data.can_hard_encode (F-1802d08c0/F-1802d0f30)。
+	static bool canUseH265Encoder(bool &can_enable, std::string &message);
+	static bool canUseAv1Encoder(bool &can_hard_encode, std::string &message);
 
 private:
 	static std::string appsign(const std::vector<std::pair<std::string, std::string>> &params,
