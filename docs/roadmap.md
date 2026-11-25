@@ -25,12 +25,12 @@
 
 ## 控制台字段清单(M0 验收口径,后续里程碑逐项激活)
 
-- **状态行**(TEXT_INFO,含 WARNING/ERROR 色):登录态(mid/昵称)、房间态(room_id、live_status、锁房 notice/风控)、当前推流目标(协议、addr、key 打码)、备流地址(M3)、质量档(M2)、最近一次操作结果
-- **按钮**:扫码登录(QR SVG→系统浏览器;轮询 2s/90 次≈3 分钟,完成弹日志+状态行)、刷新、开播、开播(含备流)、停播、恢复推流(M1b)、结束进行中场次(M1b)、打开验证页(M1 风控)
-- **下拉**:二级分区(M0c)、推送协议(M1)、质量档(M2)
-- **输入**:标题(经 `UpdatePreLiveInfo`,M0c)
-- **开关**:启用备流(M3)
-- 隐藏配置(不入面板):`use_legacy_endpoints`
+- **状态行**(TEXT_INFO,含 WARNING/ERROR 色):登录态(mid/昵称)、房间态(room_id、live_status、锁房/风控)、质量信息(推荐码率+干预+编码能力)、最近一次操作结果
+- **线路区**(文本行,可选中复制):开播/找回所得的**全部线路**逐条展示(`主线路N · 协议/provider 地址`+`推流码`;备流同样逐条),插件不写 OBS 配置(ADR-0005)
+- **按钮**:扫码登录(QR SVG→系统浏览器;轮询 2s/90 次≈3 分钟)、刷新、应用标题、应用分区、拉取推荐码率与编码能力、应用码率、开播、开播(含备流)、停播、恢复推流(M1b)、结束进行中场次(M1b,两段式确认)
+- **下拉**:分区大类/二级分区(M0c)
+- **输入**:直播间标题(经 `UpdatePreLiveInfo`)、视频码率(只写当前编码器 bitrate)
+- 隐藏配置(不入面板):`use_legacy_endpoints`、`recommend_protocol`、`recommend_ip`
 
 ## 明确不做
 
@@ -40,8 +40,8 @@
 
 | U | 内容 | 卡哪个里程碑 |
 |---|---|---|
-| U1 | `protocols[].protocol` 除 rtmp 外的取值集(`type` 已钉死=`"1"`+类型索引) | M1 协议下拉(解析已按"未知协议忽略"放行并记观测日志) |
-| U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2(范围需按新模型重定,待用户确认) |
+| U1 | `protocols[].protocol` 取值集与 `protocols_backup[]` 的形状(`type` 已钉死=`"1"`+类型索引) | 已解除:不再做协议选择,线路全量展示(ADR-0005);实测取值 `bmtsrt,bmt,srt×3,rtmp×2` |
+| U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2 已按新模型完成(A0) |
 | U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
 

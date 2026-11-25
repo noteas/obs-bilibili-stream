@@ -31,7 +31,7 @@ _Avoid_: 重连、断线重连(那是 OBS 输出层重试,不同概念)
 startLive 响应 `protocols[]` 给出的当前应推地址(与全局 `live_key` 配对)。
 
 **备流**:
-同一房间的第二条备用推流路(startLive 请求 `backup_stream=1`,响应 `protocols_backup[]`)。本仓库语义 = **切换式**:主路故障时把 OBS 服务配置改写为备流地址,由用户重新推流;不是同时双推。
+同一房间的第二条备用推流路(startLive 请求 `backup_stream=1`,响应 `protocols_backup[]`)。本仓库语义 = **切换式**:主路故障时用户按展示的备流地址手动重推;不是同时双推,插件也不改写 OBS 配置(ADR-0005)。
 _Avoid_: 备份流、副流
 
 **联播**:

@@ -83,7 +83,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 - csrf 注入器: E-09 §9;appkey/ts 内联: E-09 §10
 - buvid3 硬校验 / UA 模板 / 无 Origin-Referer: E-02 §5、§7;E-08 §7
 - 信封/错误码: E-10(`Parse … missing \`code\` field` 簇)、E-06(H5 状态码)、F-180144bb0(`data.need_face_auth/data.qr`)
-- 仓库 appsign 同构实现: `src/bilibili_api.cpp:45-79`
+- 仓库 appsign 同构实现: `BiliApi::appsign()`
 
 ---
 
@@ -105,7 +105,7 @@ GET https://passport.bilibili.com/x/passport-login/web/qrcode/generate
 
 ### 证据
 - 官方: 由 CEF 远程页 `mini-login-v2` 的 JS 调用(E-06 端点清单+JS 原文)。
-- 仓库: `bilibili_api.cpp:92-122`, 字段一致 ✅。
+- 仓库: `getQrCode()` 字段一致 ✅。
 
 ## 2.2 qrcode.poll
 
@@ -332,7 +332,7 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePage
 
 ### 证据
 - 官方: builder F-18003f460;解析簇 E-10 @0x1111a3c。
-- 仓库: `bilibili_api.cpp:332-358` ✅ 完全一致。
+- 仓库: `ensureVersionInfo()` ✅ 完全一致(另带 ts 合法变体)。
 
 ## 3.5 PreCheck
 
@@ -383,7 +383,8 @@ cover_title_start_live_intercept      ← 标题/封面不合规 → 开播拦�
 multi_cover_start_live_intercept      ← 多封面不合规 → 开播拦截
 ```
 
-### 证据: 解析簇 E-10 @0x1123989、@0x1123bf5、@0x1123c88。仓库 ❌(C2/C3)。
+### 证据: 解析簇 E-10 @0x1123989、@0x1123bf5、@0x1123c88。仓库 ❌(C2/C3);
+部分替代:`PreCheck` 覆盖实名与 `game_promotion.need_notice`,startLive 的 `data.notice` 覆盖服务端弹窗阻断;封面/标题合规拦截(need_intercept/cover_*_intercept)**仍未实现**。
 
 ## 3.8 Area/getList
 
@@ -398,7 +399,7 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 {"data": [ {"id":…, "name":"…", "parent_id":…, …} ]}
 ```
 
-### 证据: builder F-18013b430(无参)。仓库 `bilibili_api.cpp:299-320` ✅。
+### 证据: builder F-18013b430(无参)。仓库 `getPartitionList()` ✅。
 
 ## 3.9 人脸状态组
 
@@ -634,7 +635,9 @@ recommend_bitrate_member_intervention, recommend_bitrate_area_intervention}`、
 
 **无档位枚举列表**——官方口径是「推荐/默认码率 + 分区/会员干预」,用户端只做码率数值,不做选档。
 
-### 证据: builder F-1802d40f0;解析器 F-1802d5060。仓库 ❌(C4 重新定义,见 roadmap M2)。
+### 证据: builder F-1802d40f0;解析器 F-1802d5060。
+仓库 ✅ `videoQualityConfig()`(按实网形状解析:干预列表命中二级分区,回落 default_bitrate);
+控制台只做码率数值,不做选档。
 
 ## 5.5 CanUseH265Encoder / CanUseAV1Encoder
 
@@ -645,7 +648,7 @@ GET,无业务参数(纯公共+sign;builder F-1802d04b0/F-1802d0b20 无参数插�
 - H265(F-1802d08c0 `ParseCanUseHEVCEncodeResponse`):只回读 `data.can_enable`。
 - AV1(F-1802d0f30 `ParseCanUseAV1EncoderResponse`):只回读 `data.can_hard_encode`。
 
-### 证据: URL findBytes+xref,builder/解析器如列。仓库 ❌。
+### 证据: URL findBytes+xref,builder/解析器如列。仓库 ✅ `canUseH265Encoder()`/`canUseAv1Encoder()`(只回读各自唯一字段)。
 
 ## 5.6 GetClientXCodeAbility / 时移
 
