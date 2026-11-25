@@ -211,18 +211,21 @@ void refresh_login_chain()
 				std::string ssoMessage;
 				Bili::BiliApi::propagateSso(ssoMessage);
 				if (!legacy) {
-					// §3.1 解析动作: live_status/have_live → 进行中场次,
-					// lock_status_v2/lock_reason → 封禁提示。取不到只降级,不断链。
+					// §3.3 room/GetInfo: live_status 实测在这里;§3.1
+					// getInfoByUser 全树无该字段(2026-11-25 实网钉死,
+					// 此前解析挂错端点导致在播恒显「未开播」)。
+					// live_status 1=直播中 2=轮回;lock_status/lock_time
+					// 为封禁信号。取不到只降级,不断链。
 					std::string stateMessage;
 					json11::Json data =
-						Bili::BiliApi::getRoomInfo("getInfoByUser", result->roomId, stateMessage);
+						Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
 					if (data.is_object()) {
 						const int live_status = data["live_status"].int_value();
 						result->liveStatus = live_status;
 						const char *state = live_status == 1 ? "直播中" : live_status == 2 ? "轮回" : "未开播";
 						result->roomState = std::string("场次:") + state;
-						if (data["lock_status_v2"].int_value() != 0)
-							result->roomState += ", 锁定:" + data["lock_reason"].string_value();
+						if (data["lock_status"].int_value() != 0)
+							result->roomState += ", 锁定中";
 					} else {
 						obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s", stateMessage.c_str());
 					}
@@ -241,6 +244,12 @@ void refresh_login_chain()
 				cfg.csrf_token = result->csrf;
 			}
 			g_config.save();
+			// 服务端场次是唯一权威(GLOSSARY 开播/停播=服务端信令):
+			// 观测到未开播而本地仍记着已开播(空场次被掐等)→ 归零。
+			if (result->liveStatus == 0 && cfg.streaming) {
+				cfg.streaming = false;
+				g_config.save();
+			}
 			// M1b 断流找回判据(契约 §7.2 前置): 服务端 live_status==1
 			// 且本地无在播认知 → 状态行给出恢复入口提示。
 			g_session_in_progress = result->liveStatus == 1;

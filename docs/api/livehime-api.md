@@ -268,12 +268,18 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 解析动作: `live_status/have_live` → 是否已有进行中场次(§6.1 前置);
 `identify_status` → 预检; `lock_status_v2/lock_reason` → 封禁提示。
 
+**实网更正(2026-11-25,登录态在播中实测)**:getInfoByUser 的 wire 响应**不含**
+`live_status/have_live/lock_*`(全树检索无命中)——解析簇是 common_service 共用键表,
+这些字段的实际供给方是 §3.3 room/GetInfo。仓库登录链房间态已改走 §3.3
+(此前挂本端点导致在播恒显「未开播」)。
+
 ### 证据
 - 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`,值已钉死);
   解析簇 E-10 @0x112c5bb、@0x112c8f6(内部名 `get-room-info`, common_service_impl2.cpp)。
-- 仓库: `getRoomInfo()` 走 getInfoByUser(登录链房间态:场次/锁定);
-  room_id 引导已切 app-blink room/GetInfo(§3.3,B1 关闭),失败回退
-  `room/v2/Room/room_id_by_uid`(仅 WARNING,`use_legacy_endpoints=true` 时直走老端点)。
+- 仓库: `getRoomInfo()` 保留(通用查询);登录链房间态改走 §3.3 room/GetInfo
+  (实网钉死 live_status/lock_status 只在 §3.3 供给);room_id 引导已切 app-blink
+  room/GetInfo(§3.3,B1 关闭),失败回退 `room/v2/Room/room_id_by_uid`
+  (仅 WARNING,`use_legacy_endpoints=true` 时直走老端点)。
 
 ## 3.3 app-blink room/GetInfo
 
@@ -295,6 +301,9 @@ xtemplate_config, multi_screen_info.double_screen_visible,
 multi_user_conn.entrances, collaboration_live_display_info
 ```
 需登录态(未登录 -101,实网实证)。`room_id` 即房间引导正解(B1)。
+**实网观测(2026-11-25)**: 在播时 `live_status=1`(0=未开播对照同端点观测);
+锁定字段 wire 实际名为 `lock_status`+`lock_time`(非解析簇的 `lock_status_v2`,
+`lock_reason` 未下发)。登录链房间态(场次/锁定/进行中场次判据)以本端点为准。
 
 ### 证据: builder F-1802b1e60(字面量 `uId`+sign;派发回调=F-1802b3690)。
 仓库: `getRoomInfoByUid()`;登录链默认先走本端点,失败 WARNING 后回退老端点。
