@@ -431,8 +431,11 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
-| `backup_stream` | 备流 builder | `1` | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
-| `backup_stream_type` `stream_biz` | 备流 builder | 工厂表调用方寄存器传入(`itoa(param)`/字符串),字面量不可定位(键全图仅 1 处引用=builder 内) | ⚠ 省略(不猜值);响应观测后补钉 |
+| `backup_stream` | 备流 builder(F-180146070) | `itoa(param_8)`(builder 第 8 参,指令实证) | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
+| `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字) | ⚠ 省略(不猜值) |
+| `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运) | ⚠ 省略(不猜值) |
+| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);同分支内 `checked="0"` | ❌(官方普通路径 param_6≠0 时不发;仓库恒发 checked 亦为可接受超集) |
+| `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
 
@@ -467,6 +470,22 @@ Cookie: <会话>  client_traceid: <非空才带>
 
 ### 证据
 - 构造: F-180141ed0、F-180146070(E-09 §1/§2 序列);`checked` itoa 链 F-180708c20→F-1806dc6e0;`type` 键 `DAT_181114fa6`;URL xref 0x180142cef/0x180146f42 E-03。
+- **F-180146070 参数→键映射(2026-11-25 指令级钉死,全文
+  `re/evidence/07-full-decompile-secret-dll.txt:661-1204`)**:签名 14 参;
+  `room_id=param_3` / `area_v2=param_4` / `src=itoa(param_5)`+`checked="0"`
+  (仅 `param_6==0`)/`type=param_7+'1'`(custom-rtmp 关)/
+  `backup_stream=itoa(param_8)` / `backup_stream_type=itoa(param_9)` /
+  `stream_biz=param_10` / `client_traceid=param_11` /
+  `multi_screen_type="1"`+`multi_screen_info=param_13`(仅 `param_12==1`)。
+  `recommend_ip`/`recommend_protocol` 取 `GetSecretCore()` 虚表 +0xa0→(+0x120/+0x130/
+  +0x140) 的测速结果,**均为非空才注**(+0x130 空则用 +0x140)。
+- **两 builder 的归属**:`secret::LiveStreamingServiceImpl` 是 RTTI 命中
+  (`.?AVLiveStreamingServiceImpl@secret@@`,TD@0x181565d50,COL@0x181123380,
+  vtable@0x18111f628);槽 13(+0x68)=F-180146070(备流/多路),
+  槽 14(+0x70)=F-180141ed0(标准)。二者均无静态 CALL xref(纯虚调用),
+  实参由 app 层(`bililive.dll` 的 `LivehimeLiveRoomController::OpenLiveRoom`)
+  经 `secret::LiveStreamingService::StartLiveInfo` 结构传入——**param_8/9/10 的
+  字面值只能从 app 层反编译取**(U6 剩余部分)。
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
 - 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
   (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、

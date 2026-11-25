@@ -516,7 +516,10 @@ void do_start_live(bool with_backup)
 				g_config.save();
 				set_streaming_service(result->addr, result->code);
 				g_backup_active = false;
-				set_status(LEVEL_INFO, "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流");
+				// message 在成功分支只承载「备流被拒已回退」类提示。
+				set_status(result->message.empty() ? LEVEL_INFO : LEVEL_WARNING,
+					   "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流" +
+						   (result->message.empty() ? "" : " — " + result->message));
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
 				// channel as the login QR.

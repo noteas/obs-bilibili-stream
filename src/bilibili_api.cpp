@@ -799,6 +799,20 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 			face_qr = face_url;
 			return false;
 		}
+		// 备流被服务端拒绝(实网 70003「获取推流地址失败,请稍后重试」):
+		// 备流是可选能力,其分配失败不应阻断开播主链 —— 回退普通开播,
+		// 并把服务端的拒绝原因经 message 上抛(成功分支由控制台展示)。
+		// 人脸/风控类(code 60024/60043/notice/v_voucher)已在上方先返回,
+		// 不会走到这里。
+		if (with_backup) {
+			const std::string reject = std::to_string(code) + " " + message;
+			obs_log(LOG_WARNING, "备流开播失败(%s),回退普通开播", reject.c_str());
+			if (startLive(config, rtmp_addr, rtmp_code, message, face_qr, mid, false, nullptr, nullptr)) {
+				message = "备流被服务端拒绝(" + reject + "),本场按普通开播";
+				return true;
+			}
+			obs_log(LOG_ERROR, "备流回退普通开播也失败: %s", message.c_str());
+		}
 		return false;
 	}
 
