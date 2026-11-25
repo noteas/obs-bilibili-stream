@@ -92,16 +92,22 @@ int g_draft_bitrate = 0;
 // §5.4/§5.5 拉取结果的多行展示(推荐码率/干预/编码能力),空=未拉取。
 std::string g_quality_info;
 
-void set_status(int level, const std::string &text)
-{
-	g_status = text;
-	g_status_level = level;
-}
-
 void refresh_props()
 {
 	if (g_alive && g_source)
 		obs_source_update_properties(g_source);
+}
+
+// UI-thread only (all callers run on it: button handlers, postToUi/guarded
+// continuations). Rebuilds the dialog as part of setting, otherwise async
+// completions leave a stale status line on screen — the panel is only redrawn
+// on explicit refresh, which used to make login/quality results appear to
+// "hang" until an unrelated button press.
+void set_status(int level, const std::string &text)
+{
+	g_status = text;
+	g_status_level = level;
+	refresh_props();
 }
 
 // Wraps a UI-thread continuation so a task delivered after ConsoleDestroy()
@@ -157,7 +163,6 @@ bool begin_action(const char *what)
 {
 	if (g_busy) {
 		set_status(LEVEL_WARNING, "已有操作进行中,请稍候(" + std::string(what) + " 未执行)");
-		refresh_props();
 		return false;
 	}
 	g_busy = true;
@@ -179,7 +184,6 @@ void refresh_login_chain()
 	// buvid3 alone is not a login session: only SESSDATA justifies nav.
 	if (!Http::HttpClient::has_cookie("SESSDATA")) {
 		set_status(LEVEL_INFO, "登录状态: 未登录");
-		refresh_props();
 		return;
 	}
 	if (!begin_action("刷新登录态"))
@@ -303,12 +307,10 @@ void do_login()
 			    Core::openInBrowser(svgPath)) {
 				Http::HttpClient::postToUi(guarded([]() {
 					set_status(LEVEL_INFO, "二维码已在浏览器打开,等待扫码确认…");
-					refresh_props();
 				}));
 			} else if (Core::openInBrowser(qrData)) {
 				Http::HttpClient::postToUi(guarded([]() {
 					set_status(LEVEL_INFO, "登录链接已在浏览器打开,等待确认…");
-					refresh_props();
 				}));
 			} else {
 				result->message = "无法打开浏览器,请手动访问: " + qrData;
@@ -336,7 +338,6 @@ void do_login()
 					std::string shown = pollMsg;
 					Http::HttpClient::postToUi(guarded([shown]() {
 						set_status(LEVEL_INFO, "登录轮询: " + shown);
-						refresh_props();
 					}));
 				}
 			}
@@ -573,22 +574,45 @@ void do_fetch_quality()
 {
 	if (!begin_action("拉取质量口径"))
 		return;
+	// 分区匹配是 UI 线程认知,先取草稿外的已保存二级分区 id。
+	const int area_id = g_config.config().area_id;
 	struct QualityResult {
 		std::string lines;
 	};
 	auto result = std::make_shared<QualityResult>();
 	Http::HttpClient::runAsync(
-		[result]() {
+		[result, area_id]() {
 			std::string message;
 			json11::Json json = Bili::BiliApi::videoQualityConfig(message);
 			if (json.is_object()) {
+				// 实网形状(2026-11-25 实测,契约 §5.4):推荐码率不在顶层,
+				// 而是 data.bitrate_config.recommend_bitrate_area_intervention.
+				// recommend_bitrate_area_v2_interventions[] 里按二级分区命中;
+				// 未命中回落 default_bitrate。
 				const json11::Json bc = json["data"]["bitrate_config"];
-				result->lines = "推荐码率: " + std::to_string((int)json["recommend_bitrate"].number_value()) +
-						  " kbps, 默认: " + std::to_string((int)bc["default_bitrate"].number_value()) +
-						  " kbps\n干预: 会员=" +
-						  (bc["recommend_bitrate_member_intervention"].bool_value() ? "有" : "无") +
-						  " 分区=" + (bc["recommend_bitrate_area_intervention"].bool_value() ? "有" : "无") +
-						  ", strategy_source=" + std::to_string(json["strategy_source"].int_value());
+				const int default_bitrate = (int)bc["default_bitrate"].number_value();
+				int recommend = default_bitrate;
+				std::string source = "=默认(本分区无干预)";
+				for (const auto &tier : bc["recommend_bitrate_area_intervention"]
+							     ["recommend_bitrate_area_v2_interventions"]
+							     .array_items()) {
+					bool hit = false;
+					for (const auto &area : tier["area_v2_ids"].array_items())
+						if (area.int_value() == area_id) {
+							hit = true;
+							break;
+						}
+					if (hit) {
+						recommend = (int)tier["recommend_bitrate"].number_value();
+						source = "分区干预:" + tier["strategy_source"].string_value();
+						break;
+					}
+				}
+				result->lines = "推荐码率: " + std::to_string(recommend) + " kbps (" + source +
+						  "), 默认: " + std::to_string(default_bitrate) +
+						  " kbps\n会员码率干预: " +
+						  (bc["recommend_bitrate_member_intervention"].bool_value() ? "有"
+													       : "无");
 			} else {
 				result->lines = "推荐码率: 获取失败(" + message + ")";
 			}
@@ -646,7 +670,6 @@ void do_apply_bitrate()
 	const int kbps = g_draft_bitrate;
 	if (kbps <= 0) {
 		set_status(LEVEL_WARNING, "码率为空或为 0,未应用");
-		refresh_props();
 		return;
 	}
 	std::string message;
@@ -664,7 +687,6 @@ void do_apply_title()
 	const std::string title = g_draft_title;
 	if (title.empty()) {
 		set_status(LEVEL_WARNING, "标题为空,未提交");
-		refresh_props();
 		return;
 	}
 	if (!begin_action("更新标题"))
@@ -695,7 +717,6 @@ void do_apply_partition()
 	const int partId = g_draft_part;
 	if (areaId <= 0) {
 		set_status(LEVEL_WARNING, "请先选择二级分区");
-		refresh_props();
 		return;
 	}
 	if (!begin_action("更新分区"))
@@ -747,7 +768,6 @@ void open_live_room()
 	const auto &cfg = g_config.config();
 	if (cfg.room_id.empty()) {
 		set_status(LEVEL_WARNING, "房间号为空,请先登录并刷新");
-		refresh_props();
 		return;
 	}
 	const std::string url = "https://live.bilibili.com/" + cfg.room_id;
@@ -815,7 +835,6 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		if (!g_confirm_end_session) {
 			g_confirm_end_session = true;
 			set_status(LEVEL_WARNING, "将向服务端发送停播信令结束进行中场次——再点一次确认");
-			refresh_props();
 		} else {
 			g_confirm_end_session = false;
 			do_stop_live();

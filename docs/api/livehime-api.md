@@ -585,13 +585,16 @@ GET upStreamConfig/GetUpStreamVideoQualityConfig
 管线例外同 §4.2 UpdatePreLiveInfo。
 
 ### 响应(解析器 F-1802d5060 `ParseStreamVideoQualityConfigResponse`)
-```
-recommend_bitrate, strategy_source,
-data.bitrate_config.{default_bitrate,
-                     recommend_bitrate_area_intervention,
-                     recommend_bitrate_member_intervention},
-recommend_bitrate_area_v2_interventions[].area_v2_ids
-```
+二进制回读的键:`recommend_bitrate`、`strategy_source`、`data.bitrate_config.{default_bitrate,
+recommend_bitrate_member_intervention, recommend_bitrate_area_intervention}`、
+`recommend_bitrate_area_v2_interventions[].area_v2_ids`。
+
+**实网形状(2026-11-25 wire 实测,登录态 GET)**:顶层**没有** `recommend_bitrate`/`strategy_source`;
+干预列表嵌在 `data.bitrate_config.recommend_bitrate_area_intervention.recommend_bitrate_area_v2_interventions[]`,
+每档 = `{area_v2_ids[], recommend_bitrate, strategy_source}`(如 high=6000/mid=4000);
+`recommend_bitrate_member_intervention` 可为 null;兜底 = `default_bitrate`(实测 3000)。
+即官方口径的「推荐码率」= 按二级分区命中干预档,未命中回落 default。
+
 **无档位枚举列表**——官方口径是「推荐/默认码率 + 分区/会员干预」,用户端只做码率数值,不做选档。
 
 ### 证据: builder F-1802d40f0;解析器 F-1802d5060。仓库 ❌(C4 重新定义,见 roadmap M2)。

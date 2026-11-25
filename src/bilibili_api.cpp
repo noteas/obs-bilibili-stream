@@ -648,6 +648,7 @@ json11::Json BiliApi::videoQualityConfig(std::string &message)
 		message = "GetUpStreamVideoQualityConfig 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
 		return json11::Json();
 	}
+	obs_log(LOG_INFO, "视频质量配置: %s", response.data.c_str());
 	return json;
 }
 
