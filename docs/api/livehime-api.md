@@ -1,0 +1,658 @@
+<!-- 本文件是随仓库分发的端点契约, 由本地逆向档案 re/API.md 迁移而来。
+证据编号(E-xx §n、@0x… 、F-<地址>)解析到本地 re/evidence/ 档案, 不随仓库分发;
+re/ 的位置与用途见 AGENTS.md。迁移时若 re/API.md 有更新, 以本文件重新迁移为准。 -->
+# B站直播姬 8.16.0.11349 全链路 API 文档
+## 登录 → 开播前 → 开播 → 推流 → 停播 / 断流恢复
+
+每个端点固定三段:**请求 / 响应 / 证据**。
+证据标记: `F-<地址>` = `re/evidence/11-flow-decompiled.txt` 反编译函数(VA, ImageBase 0x180000000);
+`E-xx §n/@0x…` = `re/evidence/` 对应文件(§10 文件开头);仓库 = 本 OBS 插件 `src/`。
+未钉死的取值一律标 **(未定)**, 不得当事实用。
+
+---
+
+# 1. 通用约定(适用于全部签名端点)
+
+## 1.1 请求
+
+**构造管线**(每个请求依次经过;全部核对过的端点均一致):
+
+```
+builder(业务参数, 条件注入)
+→ FUN_1804b5330 : 注入 csrf_token=<bili_jct>、csrf=<bili_jct>(两键同值)
+→ FUN_1804b3d60 : appsign(见下)
+→ map["sign"] = <32位小写hex>
+→ 请求头: Cookie=<会话Cookie> ; client_traceid=<追踪串>(非空才带)
+→ URL → FUN_1801397f0 派发(scheme 白名单 http/https)
+```
+
+**appsign 算法**:
+1. 参数全集(业务参数+`appkey`+`ts`+已注入的全部键)按 key 字典序排序;
+2. 拼 `k1=v1&k2=v2&…`(值不转义);
+3. 尾部**直接追加** `APP_SECRET`(无 `&`);
+4. `MD5` → 16 字节 → 32 位小写 hex;
+5. `sign` 并入输出末尾。
+
+`appkey=aae92bc66f3edfab` `secret=af125a0d5279fd576c1b4418a3e8276d`
+
+**公共参数**(谁注入):
+
+| 参数 | 注入方 |
+|---|---|
+| `appkey` `ts` | 服务基类内联 |
+| `csrf_token` `csrf` | FUN_1804b5330 |
+| `version`(=服务端 curr_version) `build` | 服务基类(值来自 §3.4) |
+| `platform=pc_link` `mobi_app` | app-blink builder |
+| `access_key` | App 身份接口 |
+
+**头**:
+```
+POST: Content-Type: application/x-www-form-urlencoded
+Cookie: SESSDATA=..; bili_jct=..; DedeUserID=..; buvid3=..   (官方硬校验 buvid3)
+User-Agent: Bililive/{ver}… / LiveHime/{ver} os/Windows pc_app/livehime build/{build}
+Origin/Referer: 官方不发
+client_traceid: <非空才发>
+```
+
+## 1.2 响应
+
+统一信封 `{code:int, message:string, ttl:int, data:object}`;
+parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才进 `data` 解析。
+
+| code | 语义 → 动作 |
+|---|---|
+| 0 | 成功 |
+| -101 | 未登录 → 登录流程 |
+| 60024 | 需人脸 → `data.qr` 出码 |
+| 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
+| `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
+| `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
+
+## 1.3 证据
+
+- 管线与逐端点一致性: E-09(13 个 builder 反汇编序列)、E-11
+- appsign: E-04(`FUN_1804b3d60` 453 调用点;`0123456789abcdef`+16字节摘要;`FUN_1804b5f10` 样本)
+- csrf 注入器: E-09 §9;appkey/ts 内联: E-09 §10
+- buvid3 硬校验 / UA 模板 / 无 Origin-Referer: E-02 §5、§7;E-08 §7
+- 信封/错误码: E-10(`Parse … missing \`code\` field` 簇)、E-06(H5 状态码)、F-180144bb0(`data.need_face_auth/data.qr`)
+- 仓库 appsign 同构实现: `src/bilibili_api.cpp:45-79`
+
+---
+
+# 2. 登录
+
+## 2.1 qrcode.generate
+
+### 请求
+```
+GET https://passport.bilibili.com/x/passport-login/web/qrcode/generate
+```
+无业务参数, 无签名, Cookie 可空。
+
+### 响应
+```json
+{"code":0, "data": {"url": "<二维码原文>", "qrcode_key": "<K>"}}
+```
+解析动作: 取 `url` 绘码, `qrcode_key` 交轮询。
+
+### 证据
+- 官方: 由 CEF 远程页 `mini-login-v2` 的 JS 调用(E-06 端点清单+JS 原文)。
+- 仓库: `bilibili_api.cpp:92-122`, 字段一致 ✅。
+
+## 2.2 qrcode.poll
+
+### 请求
+```
+GET https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=<K>
+```
+无签名。**节奏: 官方 H5 固定 2000ms**(JS 内 `2000`×4 实证)。
+
+### 响应
+```json
+{"data": {"code": 0|86038|86090|86101, "message": "...", "url": "<成功时 crossDomain 链>", "timestamp": ...}}
+```
+| data.code | 含义 → 动作 |
+|---|---|
+| 0 | 成功 → 取 `data.url` 走 §2.3 |
+| 86038 | 失效 → 重新 generate |
+| 86090 | 已扫码待确认 → 继续轮询 |
+| 86101 | 未扫码 → 继续轮询 |
+
+### 证据
+- 官方: H5 JS 内 86038/86090/86101 各 1 处、`2000` 4 处(E-06)。
+- 仓库: `bilibili_api.cpp:124-161`(同码集)✅;轮询 1000ms `ui/dialog_factory.cpp:134`、上限 180 次 `:101` ⚠️(频率差, A6)。
+
+## 2.3 crossDomain(换 Cookie)
+
+### 请求
+```
+GET <data.url> = https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=<T>&gourl=<G>&first_domain=<D>
+```
+跟随 302 链。
+
+### 响应
+`Set-Cookie: SESSDATA=…; bili_jct=…; DedeUserID=…` → 官方直接落 Chromium CookieJar(域名/过期/轮转管理)。
+
+### 证据
+- 官方: E-06(crossDomain 链)、E-08 §1(Cookie.* 配置族)。
+- 仓库: 手动二次 GET 收 Set-Cookie `bilibili_api.cpp:163-197`(2026-08 新链适配注释)✅;Cookie 不回写 `http_client.cpp:31-45` ⚠️(A7)。
+
+## 2.4 sso.list(跨域 SSO 传播)
+
+### 请求
+```
+GET https://passport.bilibili.com/x/passport-login/web/sso/list
+```
+成功后逐个跟随返回的跳转 URL。
+
+### 响应
+SSO 跳转 URL 列表(字段名未钉死)→ 每个 URL 一次 302 刷新对应域 Cookie。
+
+### 证据
+- 官方: E-06(H5 端点清单)。仓库: ❌ 无(B3)。
+
+## 2.5 captcha(登录风控, geetest4)
+
+### 请求
+```
+POST https://passport.bilibili.com/x/passport-login/captcha
+```
+携带 geetest 结果回填 `captcha_key` 后重试 generate/poll。
+
+### 响应
+`geetest4` 参数(`support_captcha_types:"geetest4"`)+ 通过后 `captcha_key`。
+
+### 证据
+- 官方: E-06(JS 内 geetest×56、captcha_key×6、recaptcha×2)。仓库: ❌ 无。
+
+## 2.6 getkey(App OAuth 路线, 第二条登录路线)
+
+### 请求
+passport 域 `getkey`, 无业务参数。
+
+### 响应
+```json
+{"data": {"hash": "<salt>", "key": "<RSA公钥PEM>"}}
+```
+用于口令 `RSA(hash+password)` 加密。
+
+### 证据
+- 官方: F 锚 `getkey` 解析簇 E-10 @0x1145e65(`data.hash`,`data.key`);URL 明文 `passport.bilibili.com/api/v3/oauth2/login` E-05。
+
+## 2.7 login-v3(App OAuth 登录)
+
+### 请求
+```
+POST https://passport.bilibili.com/api/v3/oauth2/login
+```
+用户+RSA 加密口令等, 请求参数集 **(未定, U5)**。
+
+### 响应
+```json
+{"data": {
+  "token_info": {"mid":…, "access_token":"…", "refresh_token":"…", "expires_in":…},
+  "cookie_info": {"cookies":[{"name","value",…}], "domains":[…]}
+}}
+```
+解析动作: 存 access_token(access_key 路线)+按 domains 直接发 Cookie。
+
+### 证据
+- 官方: E-10 @0x1145f5a/@0x114603b(`data.token_info.*`、`data.cookie_info.cookies/domains` 簇)。
+
+## 2.8 check-auth-token
+
+### 请求
+GET, App 路线 token 校验, 参数 access_key(值未钉死)。
+
+### 响应
+```json
+{"data": {"mid":…, "expires_in":…, "access_token":"…"}}
+```
+
+### 证据
+- 官方: E-10 @0x11463bd。
+
+## 2.9 nav(原生登录态确认)
+
+### 请求
+```
+GET https://api.bilibili.com/x/web-interface/nav?appkey=…&ts=…&sign=…
+```
+无业务参数; **官方带 appsign**(builder 内 sign 插入在 URL 前)。
+
+### 响应
+```json
+{"data": {"isLogin": true, "mid": 123, …}}
+```
+
+### 证据
+- 官方: F-1804c2200(builder: 无业务参数+sign+URL)。
+- 仓库: `bilibili_api.cpp:214-242` 消费同字段, 但 **不签名** ⚠️。
+
+---
+
+# 3. 房间信息与开播前
+
+## 3.1 getInfoByUser / 3.2 getInfoByRoom(共用构造器)
+
+### 请求
+```
+GET https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByUser
+GET https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom
+```
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `room_id` | 由调用方(值语义按端点) | builder 字面量 |
+| `device` | ✅ | 取值 **(未定)** |
+| 公共+sign | ✅ | §1 |
+
+### 响应(`data`, 官方解析全字段)
+```
+area_v2_id, area_v2_name, parent_id,
+live_status(0未开播/1直播中/2轮回), have_live,
+identify_status(实名/人脸态), lock_status_v2, lock_time, lock_reason,
+master_level, master_score, master_next_level_score,
+medal_status, medal_name, guard_count, guard_warn.{is_warn,expired,will_expired},
+join_slide, fans_club, appointment_before_live,
+anchor_content, content_is_open, watched_show, ab,
+hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_num
+```
+解析动作: `live_status/have_live` → 是否已有进行中场次(§6.1 前置);
+`identify_status` → 预检; `lock_status_v2/lock_reason` → 封禁提示。
+
+### 证据
+- 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`);
+  解析簇 E-10 @0x112c5bb、@0x112c8f6(内部名 `get-room-info`, common_service_impl2.cpp)。
+- 仓库: ❌ 两处均未用; 用老端点 `room/v2/Room/room_id_by_uid`(`bilibili_api.cpp:261`, B1)。
+
+## 3.3 app-blink room/GetInfo
+
+### 请求
+```
+GET https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?uId=<mid>&<公共+sign>
+```
+
+### 响应: 房间聚合信息(字段簇与 §3.1 同族, 完整清单未钉死)。
+
+### 证据: builder F-1802b1e60(字面量 `uId`+sign)。仓库 ❌。
+
+## 3.4 getHomePageLiveVersion
+
+### 请求
+```
+GET https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePageLiveVersion
+```
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `system_version` | ✅ | 官方 builder 仅此业务参数 |
+| 公共+sign | ✅ | 仓库另显式带 `ts`(合法变体) |
+
+### 响应
+```json
+{"data": {"build": 11349, "curr_version": "8.16.0.11349",
+          "download_url":"…", "file_size":…, "file_md5":"…",
+          "instruction":"…", "is_mandatory":…, "is_push":…, "hdiffpatch_switch":…}}
+```
+解析动作: 双方都取 `build`/`curr_version` 作为**后续全部请求的公共参数值**;
+官方另解析升级提示组(仓库不需要)。
+
+### 证据
+- 官方: builder F-18003f460;解析簇 E-10 @0x1111a3c。
+- 仓库: `bilibili_api.cpp:332-358` ✅ 完全一致。
+
+## 3.5 PreCheck
+
+### 请求
+```
+POST https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck
+```
+参数经 `%s` 动态格式化注入, 字面值 **(未定)**;+sign。
+
+### 响应(PreLiveBizCheck 解析组)
+```
+data.game_promotion.{need_notice, biz_id, title, content, effect_button, no_effect_button, cool_down_days} …
+```
+→ 合规弹窗/推广拦截。
+
+### 证据: builder F-1804c4c00;解析簇 E-10 @0x112cfad。仓库 ❌(C2)。
+
+## 3.6 GetRoomPreLiveStatus
+
+### 请求
+```
+GET https://api.live.bilibili.com/xlive/app-blink/v1/index/GetRoomPreLiveStatus
+```
+builder 无字符串字面量(参数经寄存器传入, 字面值 **(未定)**, 推测仅 `room_id`)。
+
+### 响应: 播前状态(字段未钉死)。
+
+### 证据: builder F-1804466d0。仓库 ❌。
+
+## 3.7 prelive-info(播前房间资料, 含开播拦截)
+
+### 请求: app-blink preLive 详情接口(路径组 E-05)。
+
+### 响应
+```
+data.{title, cover, multi_cover, area, schedule}
+auditStatus / auditReason / selectStatus
+need_intercept, intercept_toast
+cover_title_start_live_intercept      ← 标题/封面不合规 → 开播拦截
+multi_cover_start_live_intercept      ← 多封面不合规 → 开播拦截
+```
+
+### 证据: 解析簇 E-10 @0x1123989、@0x1123bf5、@0x1123c88。仓库 ❌(C2/C3)。
+
+## 3.8 Area/getList
+
+### 请求
+```
+GET https://api.live.bilibili.com/room/v1/Area/getList
+```
+无参数。
+
+### 响应
+```json
+{"data": [ {"id":…, "name":"…", "parent_id":…, …} ]}
+```
+
+### 证据: builder F-18013b430(无参)。仓库 `bilibili_api.cpp:299-320` ✅。
+
+## 3.9 人脸状态组
+
+### 请求
+`preLive/GetRealnameApplyStatus`、`preLive/IsUserIdentifiedByFaceAuth`、`preLive/ReportFaceRecognition`(路径 E-05, 参数 **(未定)**)。
+
+### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 仅事后 60024/60043 出码(`:401-419`), 60043 拼 `face-auth-middle.html?source_event=400` 与官方 `auth-middle.html?source_event=200` 不同族 ⚠️。
+
+---
+
+# 4. 开播与房间设置
+
+## 4.1 startLive ★核心(内部名 open-live-room)
+
+### 请求
+```
+POST https://api.live.bilibili.com/room/v1/Room/startLive
+Content-Type: application/x-www-form-urlencoded
+Cookie: <会话>  client_traceid: <非空才带>
+```
+官方两个构造路径(F-180141ed0 标准 / F-180146070 备流·多路), 注入条件=builder 实际逻辑:
+
+| 参数 | 注入条件(官方) | 值 | 仓库 |
+|---|---|---|---|
+| `room_id` | 恒注 | 房间号 | ✅ `:365` |
+| `area_v2` | 恒注 | 二级分区 | ✅ `:367` |
+| `checked` | **恒注 `"0"`**(itoa(0) 指令实证) | `"0"` | ❌ |
+| `type` | 仅当本地配置 `custom-rtmp` 关(F-180141ed0 `FUN_180904490(cfg,"custom-rtmp")==0` 分支) | **(未定)** | ❌ |
+| `recommend_protocol` | 非空才注 | 合法值含 `"rtmp"`(§响应第3步默认值实证); 其余 U1 | ❌ |
+| `recommend_ip` | 非空才注 | §5.7 测速结果 | ❌ |
+| `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
+| `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
+| `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
+| `backup_stream` | 备流 builder | `1` | 写死 `0` `:368` |
+| `backup_stream_type` `stream_biz` | 备流 builder | (未定) | ❌ |
+| `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
+| `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
+
+### 响应
+```json
+{"code":0, "message":"0", "data": {
+  "room_type": <int>,
+  "need_face_auth": <bool>, "qr": "<人脸二维码URL>",
+  "live_key": "<推流密钥>",
+  "protocols":         [ {"protocol":"rtmp|…", "addr":"…", "new_link":…, "provider":"…"} ],
+  "protocols_backup":  [ 同结构 ],
+  "rtmp": {"new_link": <必存在>, "code": "<旧推流码>", "addr": "<旧地址>"},
+  "xcode_stream": [ {"suffix":"…", "protocols":[…]} ],
+  "sub_session_key": "<多路子会话>",
+  "notice": {"type","status","title","msg","button_text","button_url"},
+  "risk_extra": {"v_voucher": "<风控凭证>"}
+}}
+```
+**解析器 F-180144bb0 执行序**(指令级还原):
+1. `code!=0` → 错误分派(60024→`data.qr`);
+2. 解析 `room_type`(int)、`need_face_auth`(bool)、`qr`(string);
+3. 协议默认值写入字面量 `"rtmp"`(0x706d7472 小端, 实证);
+4. 读 `data.live_key`;
+5. `data.protocols[]` 非空 → 逐条转 StreamTarget(字段 `protocol/addr/new_link/provider`, 与 live_key 配对, F-1801ef020);
+6. 否则旧式回落: **`rtmp.new_link` 必须存在**(缺→无效), 再读 `rtmp.code`、`rtmp.addr`(addr 存在=有效);
+7. `data.protocols_backup[]` 同 5;
+8. `data.xcode_stream[]` 逐项 memcmp 目标协议 → 取子对象 `protocols`(协议↔xcode 后缀映射);
+9. 3-8 后无效 → `Parse open-live-room failure: missing fields!` + 原文 → 失败;
+10. 成功 → 日志 `pay live rtmp_info.addr: / new_link: / key:` → 地址+密钥交 OBS;
+11. 读 `sub_session_key`;
+12. 透传 `notice.*`(弹窗阻断)+`risk_extra.v_voucher`(→§2.5 同族风控)。
+
+### 证据
+- 构造: F-180141ed0、F-180146070(E-09 §1/§2 序列);`checked` itoa 链 F-180708c20→F-1806dc6e0;`type` 键 `DAT_181114fa6`;URL xref 0x180142cef/0x180146f42 E-03。
+- 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
+- 仓库: 参数 `:365-374` ✅共有部分;响应只读 `data.rtmp.addr/code` `:421-425` ❌(notice/v_voucher 真缺陷, B4)。
+
+## 4.2 UpdatePreLiveInfo(播前改资料)
+
+### 请求
+```
+POST https://api.live.bilibili.com/xlive/app-blink/v1/preLive/UpdatePreLiveInfo
+```
+| 参数 | 说明 |
+|---|---|
+| `mobi_app` | builder 字面量 |
+| `title` | 标题 |
+| `ai_title_task_id` | 仅 AI 标题时(`has_task_id` 日志实证) |
+| 封面/简介等 | 运行期字符串注入 (未定) |
+| +csrf+sign | §1 |
+
+### 响应: 信封级(code 校验)。
+
+### 证据
+- 官方: F-180151c10(含日志 `[UpdateRoomInfo] room_id=… title_length=… has_task_id=… task_id=…`)。
+- 仓库: 老端点 `room/v1/Room/update`(`:467-480`, 无 sign)⚠️(B2)。
+
+## 4.3 AnchorChangeRoomArea(播中改分区)
+
+### 请求
+```
+POST https://api.live.bilibili.com/xlive/app-blink/v2/room/AnchorChangeRoomArea
+```
+| 参数 | 值 |
+|---|---|
+| `room_id` | 房间号 |
+| `platform` | `"pc_link"`(builder 字面量实证) |
+| `build` | 当前 build |
+| `area_id` | 新分区 |
+| +sign | §1 |
+
+### 响应: 信封级。
+
+### 证据: F-1801e8790(四参数+platform 字面量全实证)。仓库 ❌(播中改分区走老端点)。
+
+## 4.4 bind-live-topic / get-live-topic
+
+### 请求
+bind(POST)/get(GET), 参数动态注入 (未定)。
+
+### 响应(get)
+```json
+{"data": {"topic_id":"…", "topic_name":"…", "act_id":…, "status":…}}
+```
+bind: 仅 `message`。
+
+### 证据: F-1801496e0、F-18014aa20;簇 E-10 @0x11221c9。仓库 ❌。
+
+## 4.5 封面 / AI 标题 / 敏感词 / 临时设置
+
+### 请求
+- 封面上传: `POST https://api.bilibili.com/x/upload/web/image`(multipart, 参数未钉死)
+- 封面评分: `GetCoverAdviceAndQualityScore`
+- AI 标题: `generateAiTitle` → 轮询 `getAiTitleResult`
+- `sensitiveWordsCheck`、`updateTemporaryConf`(簇 @0x1123e61)
+
+### 响应
+- 评分: `data.{score, score_color, domains, params, recommended_tags}`
+- AI 结果: `progress_text, fail_reason` + 结果列表
+
+### 证据: E-10 @0x112d502、@0x1125147、@0x1123e61;URL E-05。仓库 ❌(C3/C6)。
+
+---
+
+# 5. 推流
+
+## 5.1 主路(与本插件同机制)
+
+`startLive` 所得 `addr+key` → RTMP 输出(libobs)。官方内置 OBS(obs_proxy), 仓库交用户 OBS。**等价** ✅。
+
+## 5.2 GetUpStreamConfig
+
+### 请求: GET app-blink/v1/live/GetUpStreamConfig(+sign)。
+
+### 响应
+```
+data.latency_measure_config.{t1, t2, acceptable_clock_max_error_ms,
+                             retry_interval_ms, max_retry_count, kv_state, content}
+data.sei_interval, sei_interval_switch
+```
+
+### 证据: parser F-1801df430(GetUpStreamConfigParser);簇 E-10 @0x1125559。仓库 ❌。
+
+## 5.3 GetQualityData / QualityCallback
+
+### 请求: `live/GetQualityData`(拉质量档)→ 选档后 `live/QualityCallback` 回执。
+
+### 响应: 质量档列表(字段未钉死)。
+
+### 证据: URL+流程 E-02 §9。仓库 ❌(C4)。
+
+## 5.4 GetUpStreamVideoQualityConfig
+
+### 响应
+```
+recommend_bitrate, strategy_source,
+data.bitrate_config.default_bitrate,
+data.bitrate_config.recommend_bitrate_member_intervention
+```
+
+### 证据: 解析器名 `ParseStreamVideoQualityConfigResponse` 簇 E-10 @0x112d3e4。仓库 ❌。
+
+## 5.5 CanUseH265Encoder / CanUseAV1Encoder
+
+### 响应
+```
+data.{can_enable, can_hard_encode, md5, sign}
+```
+
+### 证据: `ParseCanUseHEVCEncodeResponse` 簇 E-10 @0x112d2f7。仓库 ❌。
+
+## 5.6 GetClientXCodeAbility / 时移
+
+### 响应: `data.recommend_xcode_suffix`;时移 `data.{time_shift, min_time_shift, max_time_shift}`。
+
+### 证据: E-10 @0x112cc66、@0x112cda4。仓库 ❌。
+
+## 5.7 GetUpStreamSpeedTestInfo(get-speedtest-addr)
+
+### 请求: 测速探测(+sign)。
+
+### 响应
+```
+data.{fpsResult, recommendAddr, reason},
+data.nodes[],
+data.{userInfo, serverInfo, openInfo}.{ip, province, country, city, isp},
+data.scheduleInfo.{protocol, mode, edge}
+```
+⇒ 官方 `recommend_protocol`/`recommend_ip`(§4.1)的数据源: **开播前先测速再带上**。
+直播中热切节点: `GetUpStreamChangeAddr`。
+
+### 证据: 簇 E-10 @0x11240d7;builder URL E-05。仓库 ❌(C5)。
+
+## 5.8 ARTC(WebRTC)第二路线
+
+### 请求
+`POST https://api.live.bilibili.com/xlive/open-interface/v2/rtc/getJoinToken`(+getAsrProxyServer)
+
+### 证据: 字符串实证 WHIP(`WHIP TCP bind error`)/Colive/`check rtc reconnect`;实体 `obs-bilirtc-loader.dll`、`bilibili-rtc.dll`;SDP/ICE 细节 U3(E-08 §2)。
+
+## 5.9 房间时延/时间监控(簇 @0x1125559)
+
+`get_live_delay_measure_time` 响应: `data.{t1, t2, acceptable_clock_max_error_ms, retry_interval_ms, max_retry_count, kv_state, content}`。证据: E-10。仓库 ❌。
+
+---
+
+# 6. 停播与收尾
+
+## 6.1 stopLive(内部名 close-live-room)
+
+### 请求
+```
+POST https://api.live.bilibili.com/room/v1/Room/stopLive
+```
+| 参数 | 说明 | 仓库 |
+|---|---|---|
+| `room_id` | **builder 唯一业务参数** | ✅ `:434` |
+| `csrf_token` `csrf` | 管线注入 | ✅ `:434-435` |
+| `ts` `appkey` `sign` | 管线 | ❌ 仓库不签名 |
+| — | 官方无 `platform` | ⚠️ 仓库多带 `platform=pc_link` |
+
+### 响应
+仅信封: parser F-180148980 只校验 `code/message`, 无 data 字段。
+
+### 证据: builder F-1801482d0(URL xref 0x1801484e0, E-09 §3);仓库 `:432-437`。
+
+## 6.2 停播收尾组
+
+| 请求 | 响应解析(证实) | 证据/仓库 |
+|---|---|---|
+| `stopLiveAdvice`、`complete-Stoplive-question-info` | 信封级+问卷 | E-10 @0x1125559;❌ |
+| `get-live-data`(播后总结) | `data.{LiveTime, AddFans, HamsterRmb, NewFansClub, DanmuNum, MaxOnline, WatchedCount}`;`data.{cover_exposure_count, watch_count, new_follow_count, new_guard_count}.{count, data_status}`;`data.{paid_rate, cover_click_rate, danmaku_rate}.{rate, data_status, last_live_change}` | E-10 @0x1142a85/@0x1142b27;❌ |
+| 关播总结页 | 浏览器开 `https://play-live.bilibili.com/play-dialog` | E-05;❌ |
+| 录像回放 `anchor-get-setting`/`anchor-save-replay` | `data.{is_ok, is_auto_archive, is_auto_sync_dynamic, is_fan_archive, other_edit_*, has_all_permission}` | E-10 @0x114287d;❌ |
+
+---
+
+# 7. 断流恢复(OBS 崩溃重启接回流)
+
+## 7.1 get_stream_by_roomId
+
+### 请求
+```
+GET https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId?room_id=<房号>
+```
+业务参数仅 `room_id`+sign。
+
+### 响应: 进行中场次列表(字段未钉死)。
+
+### 证据: builder FUN_18014bf40(E-09 §12)。仓库 ❌(C1)。
+
+## 7.2 GetUpStreamRtmp
+
+### 请求
+```
+GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_id=<房号>
+```
+
+### 响应(`ReconnectLiveInfo`)
+```json
+{"data": {"can_change": <bool>, "urls": ["<可推地址>"], "message": "…"}}
+```
+
+### 证据: builder FUN_18014d920(E-09 §12);解析簇 E-10 @0x112d6db。仓库 ❌。
+配套前置: §3.1 `live_status/have_live` 判"服务端仍认为在播"。
+
+## 7.3 连麦断线(非推流)
+
+`xInteract/ReconnectLink`、`video-conn-reconnect-link` →
+`data.{accept_connection, accept_each_connection, time_out}`(E-10 @0x1147f09)。
+
+---
+
+# 8. 未定项(本文档诚实边界)
+
+| # | 未定 | 出现处 |
+|---|---|---|
+| U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
+| — | `type` 参数值;`device` 取值;PreCheck/GetRoomPreLiveStatus 参数字面 | §4.1/§3.1/§3.5/§3.6 |
+| U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
+| U5 | login-v3 请求参数集 | §2.7 |
+| — | get_stream_by_roomId 响应字段;R4 封面上传参数 | §7.1/§4.5 |
+
+复现对应功能前必须先补对应 U 项(方法见 docs/roadmap.md)。

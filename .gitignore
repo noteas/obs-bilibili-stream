@@ -2,6 +2,9 @@
 /*
 
 # Except for default project files
+!/AGENTS.md
+!/GLOSSARY.md
+!/docs
 !/.github
 !/build-aux
 !/cmake
