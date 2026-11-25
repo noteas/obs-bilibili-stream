@@ -63,6 +63,14 @@ public:
 	// §4.3 AnchorChangeRoomArea (播中改分区): room_id+platform=pc_link+build+area_id
 	// +csrf+sign, all four literals builder-proven (F-1801e8790).
 	static bool changeRoomArea(const Config &config, int area_id, std::string &message);
+	// §3.1/§3.2 shared builder F-1800c3810 (room_id + device="pc" + common + sign).
+	// endpoint = "getInfoByUser" (own room, session-keyed; callers pass their known
+	// room_id — the official parse cluster reads no room_id field back) or
+	// "getInfoByRoom". Returns data on success, null Json + message on failure.
+	static json11::Json getRoomInfo(const std::string &endpoint, const std::string &room_id, std::string &message);
+	// §4.2 UpdatePreLiveInfo (播前改标题等): sign covers common params ONLY, then
+	// mobi_app=pc_link + title (non-empty) + csrf pair are appended (F-180151c10).
+	static bool updatePreLiveInfo(const Config &config, const std::string &title, std::string &message);
 
 private:
 	static std::string appsign(const std::vector<std::pair<std::string, std::string>> &params,

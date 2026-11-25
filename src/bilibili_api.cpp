@@ -27,6 +27,31 @@ static std::string jsonErrorMessage(const json11::Json &json)
 	return message;
 }
 
+// Percent-encode a POST body value (titles carry & = % etc.).
+static std::string urlEncode(const std::string &s)
+{
+	char *e = curl_easy_escape(nullptr, s.c_str(), 0);
+	std::string out = e ? e : s;
+	if (e)
+		curl_free(e);
+	return out;
+}
+
+// Clone of the official common-parameter injector (FUN_180063f70, decompiled from
+// bililive_secret.dll): every signed request carries ts, version, appkey, platform
+// and build. access_key is deliberately absent — it belongs to the App-OAuth
+// identity path we do not implement. `appkey` itself is injected by appsign(), so
+// it is NOT listed here (the official map dedups keys; our vector does not).
+// Callers must ensureVersionInfo() first: version/build values come from §3.4.
+// Wire-verified against the public getInfoByRoom endpoint (code=0).
+static std::vector<std::pair<std::string, std::string>> common_params()
+{
+	return {{"ts", std::to_string(time(nullptr))},
+		{"version", g_curr_version},
+		{"platform", "pc_link"},
+		{"build", std::to_string(g_build)}};
+}
+
 std::string BiliApi::appsign(const std::vector<std::pair<std::string, std::string>> &params, const std::string &app_key,
 			     const std::string &app_sec)
 {
@@ -362,15 +387,17 @@ bool BiliApi::changeRoomArea(const Config &config, int area_id, std::string &mes
 	if (!ensureVersionInfo(message))
 		return false;
 
+	// Builder F-1801e8790 adds room_id/platform/build/area_id; platform+build are
+	// the same keys the common injector fills, so they arrive via common_params()
+	// (the official std::map dedups; our vector must not double them).
 	std::vector<std::pair<std::string, std::string>> params = {
 		{"room_id", config.room_id},
-		{"platform", "pc_link"},
-		{"build", std::to_string(g_build)},
 		{"area_id", std::to_string(area_id)},
-		{"csrf_token", config.csrf_token},
-		{"csrf", config.csrf_token},
-		{"ts", std::to_string(time(nullptr))},
 	};
+	auto cp = common_params();
+	params.insert(params.end(), cp.begin(), cp.end());
+	params.push_back({"csrf_token", config.csrf_token});
+	params.push_back({"csrf", config.csrf_token});
 	std::string data = appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::post(
 		"https://api.live.bilibili.com/xlive/app-blink/v2/room/AnchorChangeRoomArea", data);
@@ -389,6 +416,70 @@ bool BiliApi::changeRoomArea(const Config &config, int area_id, std::string &mes
 	return true;
 }
 
+json11::Json BiliApi::getRoomInfo(const std::string &endpoint, const std::string &room_id, std::string &message)
+{
+	// Shared builder F-1800c3810 for getInfoByUser/getInfoByRoom (§3.1/§3.2):
+	// room_id (caller's value), device="pc" inline literal, then the common
+	// parameters, appsign and sign. GET — no csrf injection.
+	if (!ensureVersionInfo(message))
+		return json11::Json();
+	std::vector<std::pair<std::string, std::string>> params = {
+		{"room_id", room_id},
+		{"device", "pc"},
+	};
+	auto cp = common_params();
+	params.insert(params.end(), cp.begin(), cp.end());
+	std::string url = "https://api.live.bilibili.com/xlive/app-room/v1/index/" + endpoint +
+			  "?" + appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = endpoint + " 失败，状态码: " + std::to_string(response.status);
+		return json11::Json();
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = endpoint + " 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return json11::Json();
+	}
+	return json["data"];
+}
+
+bool BiliApi::updatePreLiveInfo(const Config &config, const std::string &title, std::string &message)
+{
+	if (config.room_id.empty() || config.csrf_token.empty()) {
+		message = "配置无效: 房间号/CSRF 缺失";
+		return false;
+	}
+	// Builder F-180151c10, instruction-level: appsign runs over the COMMON
+	// parameters only; mobi_app/title/ai_title_task_id and the csrf pair are
+	// inserted into the map AFTER sign — business values are deliberately not
+	// covered by the signature (pipeline exception vs E-09, contract §4.2).
+	// ai_title_task_id is omitted (non-empty-only injection; plugin does no AI titles).
+	if (!ensureVersionInfo(message))
+		return false;
+	std::string data = appsign(common_params(), APP_KEY, APP_SECRET);
+	data += "&mobi_app=pc_link";
+	if (!title.empty())
+		data += "&title=" + urlEncode(title);
+	data += "&csrf_token=" + config.csrf_token + "&csrf=" + config.csrf_token;
+	auto response = Http::HttpClient::post(
+		"https://api.live.bilibili.com/xlive/app-blink/v1/preLive/UpdatePreLiveInfo", data);
+	obs_log(LOG_INFO, "更新播前资料: %s", response.data.c_str());
+	if (response.status != 200) {
+		message = "更新播前资料失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "更新播前资料失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	obs_log(LOG_INFO, "播前资料更新成功: title_length=%zu", title.size());
+	return true;
+}
+
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			std::string &face_qr, std::string &mid)
 {
@@ -401,18 +492,16 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 
 	if (!ensureVersionInfo(message))
 		return false;
-	const long build = g_build;
-	const std::string curr_version = g_curr_version;
 
+	// E-09 §1 order: business params → csrf pair → appsign → sign.
+	// platform/build/version/ts arrive via the common injector clone.
 	std::vector<std::pair<std::string, std::string>> start_params = {{"room_id", config.room_id},
-									 {"platform", "pc_link"},
 									 {"area_v2", std::to_string(config.area_id)},
 									 {"backup_stream", "0"},
 									 {"csrf_token", config.csrf_token},
-									 {"csrf", config.csrf_token},
-									 {"build", std::to_string(build)},
-									 {"version", curr_version},
-									 {"ts", std::to_string(time(nullptr))}};
+									 {"csrf", config.csrf_token}};
+	auto cp = common_params();
+	start_params.insert(start_params.end(), cp.begin(), cp.end());
 	std::string start_data = appsign(start_params, APP_KEY, APP_SECRET);
 
 	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/startLive", start_data);
@@ -536,6 +625,16 @@ bool BiliApi::updateRoomInfo(const Config &config, std::string &message, const s
 	if (title.empty() && areaId < 0) {
 		message = "无可更新内容";
 		return false;
+	}
+
+	if (!config.use_legacy_endpoints) {
+		// 官方拆成两个端点(契约 §4.2/§4.3): 标题/封面 → UpdatePreLiveInfo,
+		// 分区 → AnchorChangeRoomArea。老端点 Room/update 只在 legacy 开关下保留。
+		if (!title.empty() && !updatePreLiveInfo(config, title, message))
+			return false;
+		if (areaId >= 0 && !changeRoomArea(config, areaId, message))
+			return false;
+		return true;
 	}
 
 	std::string data = "room_id=" + config.room_id + "&platform=pc_link";

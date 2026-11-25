@@ -177,9 +177,11 @@ void refresh_login_chain()
 		std::string mid;
 		std::string roomId;
 		std::string csrf;
+		std::string roomState; // §3.1: 场次/封禁一句话(空=不可用)
 	};
+	const bool legacy = g_config.config().use_legacy_endpoints;
 	Http::HttpClient::runAsync(
-		[result]() {
+		[result, legacy]() {
 			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
 			if (result->loggedIn)
 				result->roomOk =
@@ -188,6 +190,22 @@ void refresh_login_chain()
 				// B3: 官方 H5 登录成功后刷新全域 Cookie;失败不影响登录态(仅日志)。
 				std::string ssoMessage;
 				Bili::BiliApi::propagateSso(ssoMessage);
+				if (!legacy) {
+					// §3.1 解析动作: live_status/have_live → 进行中场次,
+					// lock_status_v2/lock_reason → 封禁提示。取不到只降级,不断链。
+					std::string stateMessage;
+					json11::Json data =
+						Bili::BiliApi::getRoomInfo("getInfoByUser", result->roomId, stateMessage);
+					if (data.is_object()) {
+						const int live_status = data["live_status"].int_value();
+						const char *state = live_status == 1 ? "直播中" : live_status == 2 ? "轮回" : "未开播";
+						result->roomState = std::string("场次:") + state;
+						if (data["lock_status_v2"].int_value() != 0)
+							result->roomState += ", 锁定:" + data["lock_reason"].string_value();
+					} else {
+						obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s", stateMessage.c_str());
+					}
+				}
 			}
 		},
 		guarded([result]() {
@@ -206,7 +224,7 @@ void refresh_login_chain()
 				set_status(LEVEL_INFO,
 					   "登录状态: 已登录 (mid=" + result->mid +
 						   (result->roomOk ? ", 房间=" + result->roomId : ", 房间信息获取失败") +
-						   ")");
+						   (result->roomState.empty() ? "" : ", " + result->roomState) + ")");
 			else
 				set_status(LEVEL_ERROR, "登录状态: 未登录/已失效 - " + result->message);
 		}));

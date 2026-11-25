@@ -45,6 +45,12 @@ builder(业务参数, 条件注入)
 | `platform=pc_link` `mobi_app` | app-blink builder |
 | `access_key` | App 身份接口 |
 
+**注入器实身 = FUN_180063f70**(app-blink/live 签名端点的 builder 序章,反编译实证):
+一次注入 `ts`(=微秒/1e6 的秒值) `version` `appkey` `platform=pc_link` `build`;
+`access_key` 仅 App-OAuth 身份路线携带。**Web 域端点不走此注入器**(§2.9 nav 仅
+ts+appkey+sign;§6.1 stopLive 表无 build/version/platform)。缺公共参数 ⇒ `-400 请求错误`
+(实网实证);带齐时公开端点 `getInfoByRoom` 无登录态即 `code=0`(2026-11-25)。
+
 **头**:
 ```
 POST: Content-Type: application/x-www-form-urlencoded
@@ -243,9 +249,9 @@ GET https://api.live.bilibili.com/xlive/app-room/v1/index/getInfoByRoom
 ```
 | 参数 | 必填 | 说明 |
 |---|---|---|
-| `room_id` | 由调用方(值语义按端点) | builder 字面量 |
-| `device` | ✅ | 取值 **(未定)** |
-| 公共+sign | ✅ | §1 |
+| `room_id` | 由调用方 | builder 字面量;getInfoByUser 的解析簇**不回读 room_id** ⇒ 服务端按会话/传参定位房间,调用方在调用前已持有房间号 |
+| `device` | ✅ | **`"pc"`**(builder 内联 2 字节字面量 0x6370,钉死) |
+| 公共+sign | ✅ | §1(缺则 -400,已实网验证 code=0) |
 
 ### 响应(`data`, 官方解析全字段)
 ```
@@ -262,9 +268,11 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 `identify_status` → 预检; `lock_status_v2/lock_reason` → 封禁提示。
 
 ### 证据
-- 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`);
+- 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`,值已钉死);
   解析簇 E-10 @0x112c5bb、@0x112c8f6(内部名 `get-room-info`, common_service_impl2.cpp)。
-- 仓库: ❌ 两处均未用; 用老端点 `room/v2/Room/room_id_by_uid`(`bilibili_api.cpp:261`, B1)。
+- 仓库: `getRoomInfo()` 走 getInfoByUser(登录链房间态:场次/锁定);
+  room_id 引导仍用老端点 `room/v2/Room/room_id_by_uid`(B1 部分,官方登录链如何取得
+  首个 room_id 未在端点清单出现——保持引导,待补钉后可替换)。
 
 ## 3.3 app-blink room/GetInfo
 
@@ -438,17 +446,22 @@ POST https://api.live.bilibili.com/xlive/app-blink/v1/preLive/UpdatePreLiveInfo
 ```
 | 参数 | 说明 |
 |---|---|
-| `mobi_app` | builder 字面量 |
-| `title` | 标题 |
-| `ai_title_task_id` | 仅 AI 标题时(`has_task_id` 日志实证) |
-| 封面/简介等 | 运行期字符串注入 (未定) |
+| `mobi_app` | **`"pc_link"`**(builder 内联 7 字节字面量,钉死) |
+| `title` | 非空才注入(长度检查后 map 插入) |
+| `ai_title_task_id` | 非空才注入(`has_task_id` 日志实证) |
 | +csrf+sign | §1 |
+
+**管线例外(指令级实证,F-180151c10)**:appsign 先于业务参数执行——sign 只覆盖
+公共参数;`mobi_app`/`title`/`ai_title_task_id` 与 csrf 对(FUN_1804b5330 在 builder 末尾)
+都是 sign 插入之后才进 map ⇒ 业务值不在签名覆盖内。这解释了契约旧文「封面/简介等
+运行期字符串注入」:它们本就不参与签名。
 
 ### 响应: 信封级(code 校验)。
 
 ### 证据
 - 官方: F-180151c10(含日志 `[UpdateRoomInfo] room_id=… title_length=… has_task_id=… task_id=…`)。
-- 仓库: 老端点 `room/v1/Room/update`(`:467-480`, 无 sign)⚠️(B2)。
+- 仓库: `updatePreLiveInfo()` 默认路径;老端点 `room/v1/Room/update` 仅在
+  `use_legacy_endpoints=true` 保留(B2 关闭)。
 
 ## 4.3 AnchorChangeRoomArea(播中改分区)
 
@@ -466,7 +479,7 @@ POST https://api.live.bilibili.com/xlive/app-blink/v2/room/AnchorChangeRoomArea
 
 ### 响应: 信封级。
 
-### 证据: F-1801e8790(四参数+platform 字面量全实证)。仓库 ❌(播中改分区走老端点)。
+### 证据: F-1801e8790(四参数+platform 字面量全实证)。仓库 `changeRoomArea()`(播前/播中改分区统一走此端点,platform/build 经公共参数注入)。
 
 ## 4.4 bind-live-topic / get-live-topic
 
@@ -651,9 +664,13 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
-| — | `type` 参数值;`device` 取值;PreCheck/GetRoomPreLiveStatus 参数字面 | §4.1/§3.1/§3.5/§3.6 |
+| — | `type` 参数值;PreCheck/GetRoomPreLiveStatus 参数字面 | §4.1/§3.5/§3.6 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |
 | — | get_stream_by_roomId 响应字段;R4 封面上传参数 | §7.1/§4.5 |
+
+已钉死(2026-11-25, Ghidra 定点反编译 M0cDump/Dump2 + 公开端点实网):
+`device="pc"`(builder 内联 2 字节字面量)、公共参数注入器=FUN_180063f70(键集见 §1.1)、
+UpdatePreLiveInfo 注入条件(§4.2 管线例外)、`mobi_app="pc_link"`(builder 内联 7 字节字面量)。
 
 复现对应功能前必须先补对应 U 项(方法见 docs/roadmap.md)。
