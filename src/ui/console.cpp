@@ -877,29 +877,26 @@ obs_properties_t *console_properties(void *data)
 	obs_data_set_default_int(settings, KEY_PART, cfg.part_id);
 	obs_data_set_default_int(settings, KEY_AREA, cfg.area_id);
 
-	// --- 状态 ---
+	// --- 登录状态(统一入口:扫码登录/刷新/房间) ---
 	add_status_line(props, "st_login",
 			cfg.login_status ? ("登录状态: 已登录 (mid=" + cfg.mid + ")") : std::string("登录状态: 未登录"),
 			cfg.login_status ? LEVEL_INFO : LEVEL_WARNING);
-	if (!cfg.room_id.empty())
+	// 扫码登录与登录态成对:未登录时是主入口,已登录时降级为换号动作。
+	add_action_button(props, "btn_login",
+			  cfg.login_status ? "重新扫码登录(换号)" : "扫码登录(在浏览器打开二维码)", ACT_LOGIN,
+			  !g_busy);
+	add_action_button(props, "btn_refresh", "刷新登录态与房间信息", ACT_REFRESH, !g_busy);
+	if (!cfg.room_id.empty()) {
 		obs_properties_add_text(props, "st_room",
 					("房间: " + cfg.room_id + "  标题: " + cfg.title).c_str(), OBS_TEXT_INFO);
+		add_action_button(props, "btn_open_room", "在浏览器打开B站直播间", ACT_OPEN_ROOM, true);
+	}
+
+	// --- 最近操作 ---
 	if (!g_status.empty())
 		add_status_line(props, "st_last", g_status, g_status_level);
 	if (!g_stream_info.empty())
 		obs_properties_add_text(props, "st_stream", g_stream_info.c_str(), OBS_TEXT_INFO);
-
-	// --- 登录 ---
-	obs_property_t *btnLogin = obs_properties_add_button2(
-		props, "btn_login", "扫码登录(在浏览器打开二维码)",
-		+[](obs_properties_t *p, obs_property_t *b, void *d) { return on_button(p, b, d); },
-		reinterpret_cast<void *>(ACT_LOGIN));
-	obs_property_set_enabled(btnLogin, !g_busy);
-	obs_property_t *btnRefresh = obs_properties_add_button2(
-		props, "btn_refresh", "刷新登录态与房间信息",
-		+[](obs_properties_t *p, obs_property_t *b, void *d) { return on_button(p, b, d); },
-		reinterpret_cast<void *>(ACT_REFRESH));
-	obs_property_set_enabled(btnRefresh, !g_busy);
 
 	// --- 直播间设置 ---
 	obs_property_t *title =
@@ -981,7 +978,6 @@ obs_properties_t *console_properties(void *data)
 		add_action_button(props, "btn_end_session",
 				  g_confirm_end_session ? "确认结束场次!" : "结束进行中场次", ACT_END_SESSION,
 				  !g_busy && cfg.login_status && !cfg.room_id.empty());
-	add_action_button(props, "btn_open_room", "打开直播间", ACT_OPEN_ROOM, true);
 
 	obs_data_release(settings);
 	return props;
@@ -1054,18 +1050,6 @@ void ConsoleOpenPanel()
 {
 	if (g_source)
 		obs_frontend_open_source_properties(g_source);
-}
-
-void ConsoleStartLogin()
-{
-	if (g_alive)
-		do_login();
-}
-
-void ConsoleOpenRoom()
-{
-	if (g_alive)
-		open_live_room();
 }
 
 } // namespace UI

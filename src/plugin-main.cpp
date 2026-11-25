@@ -9,21 +9,12 @@ OBS_DECLARE_MODULE()
 // NOTE: deliberately no OBS_MODULE_USE_DEFAULT_LOCALE — since ADR-0003 all UI
 // text is a hard-coded Chinese literal, obs_module_text() is unused.
 
-// The tools-menu entries are thin dispatchers into the console (ADR-0003): all
-// state and all UI live in the console source's properties dialog.
+// The single tools-menu entry opens the console (ADR-0003): all state, all
+// actions (login / room / live control) live in the console source's properties
+// dialog — the menu stays a launcher only.
 static void menu_open_console(void *)
 {
 	UI::ConsoleOpenPanel();
-}
-
-static void menu_qr_login(void *)
-{
-	UI::ConsoleStartLogin();
-}
-
-static void menu_open_room(void *)
-{
-	UI::ConsoleOpenRoom();
 }
 
 bool obs_module_load(void)
@@ -34,8 +25,6 @@ bool obs_module_load(void)
 	UI::ConsoleCreate();
 
 	obs_frontend_add_tools_menu_item("B站直播控制台", menu_open_console, nullptr);
-	obs_frontend_add_tools_menu_item("B站扫码登录", menu_qr_login, nullptr);
-	obs_frontend_add_tools_menu_item("打开B站直播间", menu_open_room, nullptr);
 
 	obs_log(LOG_INFO, "插件加载成功");
 	return true;

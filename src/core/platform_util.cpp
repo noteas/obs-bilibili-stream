@@ -32,7 +32,10 @@ static bool spawnLauncher(const char *program, const char *arg)
 	posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY | O_CREAT | O_APPEND, 0644);
 	posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY | O_CREAT | O_APPEND, 0644);
 	pid_t pid = 0;
-	const int rc = posix_spawn(&pid, program, &actions, nullptr, const_cast<char *const *>(argv), environ);
+	// posix_spawnp (NOT posix_spawn): "xdg-open" is a bare PATH name and
+	// posix_spawn does not search PATH — it fails ENOENT silently, which was
+	// the "browser never opens" bug (verified: spawn rc=2, spawnp rc=0).
+	const int rc = posix_spawnp(&pid, program, &actions, nullptr, const_cast<char *const *>(argv), environ);
 	posix_spawn_file_actions_destroy(&actions);
 	return rc == 0;
 }

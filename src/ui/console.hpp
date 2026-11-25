@@ -5,8 +5,9 @@ namespace UI {
 
 // The plugin's only UI (ADR-0003): a hidden private source whose properties OBS
 // renders natively. No widget toolkit is linked; every control is an
-// obs_property. Menu entries and the properties dialog both dispatch into the
-// entry points below. All of them must be called on the OBS UI thread.
+// obs_property. The tools menu only opens the dialog; every action (login,
+// room, live control) is a dialog button. All entry points must be called on
+// the OBS UI thread.
 
 // Register the console source type; call once before ConsoleCreate().
 obs_source_info *ConsoleSourceInfo();
@@ -16,7 +17,5 @@ void ConsoleCreate();
 void ConsoleDestroy();
 
 void ConsoleOpenPanel(); // open the properties dialog
-void ConsoleStartLogin();
-void ConsoleOpenRoom();
 
 } // namespace UI
