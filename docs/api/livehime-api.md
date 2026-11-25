@@ -651,9 +651,16 @@ GET https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId
 ```
 业务参数仅 `room_id`+sign。
 
-### 响应: 进行中场次列表(字段未钉死)。
+### 响应(解析器 F-18014cf60 钉死, 2026-11-25)
+```json
+{"data": {"rtmp": {"addr": "…", "code": "…"},
+          "stream_line": [{"src": "…", "cdn_name": "…", "checked": …}]}}
+```
+`rtmp.{addr,code}` = 进行中场次的推流地址与密钥(断流找回正解);
+`stream_line[]` = CDN 线路表(`src` 字面量 0x181120655 实证)。
 
-### 证据: builder FUN_18014bf40(E-09 §12)。仓库 ❌(C1)。
+### 证据: builder FUN_18014bf40(E-09 §12), 派发解析回调 F-18014cf60。
+仓库 `getActiveStream()`(M1b 恢复首选源)。
 
 ## 7.2 GetUpStreamRtmp
 
@@ -667,8 +674,10 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 {"data": {"can_change": <bool>, "urls": ["<可推地址>"], "message": "…"}}
 ```
 
-### 证据: builder FUN_18014d920(E-09 §12);解析簇 E-10 @0x112d6db。仓库 ❌。
-配套前置: §3.1 `live_status/have_live` 判"服务端仍认为在播"。
+### 证据: builder FUN_18014d920(E-09 §12);解析簇 E-10 @0x112d6db。
+仓库 `getUpStreamRtmp()`(M1b 恢复备用源: `can_change` 且有 urls 时用 `urls[0]`,
+密钥复用本地留存推流码)。
+配套前置: §3.1 `live_status/have_live` 判"服务端仍认为在播"(登录链/刷新链 liveStatus 透出)。
 
 ## 7.3 连麦断线(非推流)
 

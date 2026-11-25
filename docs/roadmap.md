@@ -18,8 +18,8 @@
 | M0 | `milestone/m0-qt-free` | UI 迁移到控制台(字段清单见下),删 Qt/moc/`ENABLE_QT`;所有后续里程碑的可编译前提 | ADR-0003 | 完成(2026-11-25,OBS 32.2 真机加载/卸载验证) |
 | M0b | `milestone/m0b-fingerprint` | 原生 UA、去 Origin/Referer 与 charset、buvid3 获取+持久化+全携带、client_traceid、轮询 2s、cookie jar 轮转回写、nav/stopLive 补 appsign、notice 以 ERROR 状态行透出 | A1-A7、B4① | 完成(2026-11-25,真机验证指纹/持久化/加载卸载;扫码登录链路待用户实测) |
 | M0c | `milestone/m0c-endpoints` | `getInfoByUser`/app-blink `room/GetInfo` 替代 `room_id_by_uid`;`UpdatePreLiveInfo`/`AnchorChangeRoomArea` 替代 `Room/update`;SSO 跨域传播;隐藏配置 `use_legacy_endpoints` 回退开关(默认关) | B1、B2、B3 | 完成(2026-11-25:公共参数注入器 FUN_180063f70 钉死+公开端点实网 code=0;`device=pc`/`mobi_app=pc_link`/UpdatePreLiveInfo 签名例外/room-GetInfo 字段清单全钉死;B1-B3 关闭;登录态专属调用形状待用户账号实测) |
-| M1 | `milestone/m1-startlive` | startLive 全参数集(checked="0"、type、recommend_protocol/ip、xcode_suffixes、条件注入)+ 响应 12 步全解析(live_key/protocols[]/protocols_backup/xcode_stream/notice/v_voucher/sub_session_key)+ 服务改写管线(rtmp_custom;SRT 映射就位)+ 协议下拉 + v_voucher 轻量链(浏览器验证页) | B4、C5(rtmp/srt) | 待开工 |
-| M1b | `milestone/m1b-reconnect` | 启动即查(已登录才查)`live_status==1` → 控制台提示恢复;`GetUpStreamRtmp`→`ReconnectLiveInfo{can_change,urls,message}`;恢复=服务改写;「结束进行中场次」按钮(stopLive 清残留,二次确认) | C1 | 待开工 |
+| M1 | `milestone/m1-startlive` | startLive 全参数集(checked="0"、type、recommend_protocol/ip、xcode_suffixes、条件注入)+ 响应 12 步全解析(live_key/protocols[]/protocols_backup/xcode_stream/notice/v_voucher/sub_session_key)+ 服务改写管线(rtmp_custom;SRT 映射就位)+ 协议下拉 + v_voucher 轻量链(浏览器验证页) | B4、C5(rtmp/srt) | 主体完成(2026-11-25:checked/type 钉死并注入、recommend_* 隐藏配置透传、响应第2-10步解析、PreCheck 阻断+播前状态观测、服务改写管线落地;xcode/多路=不做项;协议下拉待 U1 实网取值集,v_voucher 现为文案透出) |
+| M1b | `milestone/m1b-reconnect` | 启动即查(已登录才查)`live_status==1` → 控制台提示恢复;`GetUpStreamRtmp`→`ReconnectLiveInfo{can_change,urls,message}`;恢复=服务改写;「结束进行中场次」按钮(stopLive 清残留,二次确认) | C1 | 完成(2026-11-25:§7.1 解析器钉死,恢复链=get_stream_by_roomId 优先→GetUpStreamRtmp 备用;两段式确认结束场次;登录链 live_status 透出+启动即查已有;恢复形状待账号实测) |
 | M2 | `milestone/m2-quality` | **前置**:定点 Ghidra 钉死 `GetQualityData`/`QualityCallback` 响应字段与档位→码率口径,结论先经用户确认。然后:质量档下拉 → 仅写当前流输出视频编码器 bitrate → `QualityCallback` 回执;`CanUseH265/AV1` 结果仅展示 | C4 | 阻塞于前置 |
 | M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 存储 + 控制台备流行与「切到备流」 | — | 待开工 |
 
@@ -40,9 +40,9 @@
 
 | U | 内容 | 卡哪个里程碑 |
 |---|---|---|
-| U1 | `protocols[].protocol` 除 rtmp 外的取值集、`type` 参数值 | M1(可先按"未知协议忽略"策略放行) |
+| U1 | `protocols[].protocol` 除 rtmp 外的取值集(`type` 已钉死=`"1"`+类型索引) | M1 协议下拉(解析已按"未知协议忽略"放行并记观测日志) |
 | U-Q | `GetQualityData`/`QualityCallback` 请求响应字段 | M2 |
-| U-R | `get_stream_by_roomId` 响应字段(恢复主路径用 GetUpStreamRtmp,不阻塞) | M1b(降级) |
+| U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
 
 ## 真实调用测试原则

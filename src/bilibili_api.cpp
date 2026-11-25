@@ -577,6 +577,58 @@ bool BiliApi::getRoomPreLiveStatus(int &status, std::string &message)
 	return true;
 }
 
+json11::Json BiliApi::getActiveStream(const std::string &room_id, std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return json11::Json();
+	std::vector<std::pair<std::string, std::string>> params = {{"room_id", room_id}};
+	auto cp = common_params();
+	params.insert(params.end(), cp.begin(), cp.end());
+	std::string url = "https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId?" +
+			  appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "get_stream_by_roomId 失败，状态码: " + std::to_string(response.status);
+		return json11::Json();
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "get_stream_by_roomId 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return json11::Json();
+	}
+	return json["data"];
+}
+
+bool BiliApi::getUpStreamRtmp(const std::string &room_id, bool &can_change, std::vector<std::string> &urls,
+			      std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return false;
+	std::vector<std::pair<std::string, std::string>> params = {{"room_id", room_id}};
+	auto cp = common_params();
+	params.insert(params.end(), cp.begin(), cp.end());
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?" +
+			  appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "GetUpStreamRtmp 失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "GetUpStreamRtmp 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	can_change = json["data"]["can_change"].bool_value();
+	for (const auto &u : json["data"]["urls"].array_items())
+		if (u.is_string())
+			urls.push_back(u.string_value());
+	message = json["data"]["message"].string_value(); // ReconnectLiveInfo 附言
+	return true;
+}
+
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			std::string &face_qr, std::string &mid)
 {

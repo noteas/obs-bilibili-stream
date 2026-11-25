@@ -38,6 +38,8 @@ enum Action : uintptr_t {
 	ACT_APPLY_PARTITION,
 	ACT_START_LIVE,
 	ACT_STOP_LIVE,
+	ACT_RECOVER,
+	ACT_END_SESSION,
 	ACT_OPEN_ROOM,
 };
 
@@ -66,6 +68,10 @@ bool g_busy = false;
 std::string g_status;
 int g_status_level = LEVEL_INFO;
 std::string g_stream_info;
+// 服务端仍认为在播(live_status==1)且本地未推流 → "恢复推流"可用(M1b)。
+bool g_session_in_progress = false;
+// 「结束进行中场次」两段式确认:第一次点击置位并改口,再点才发 stopLive。
+bool g_confirm_end_session = false;
 json11::Json g_partitions;
 bool g_partitions_loading = false;
 bool g_partitions_tried = false;
@@ -179,6 +185,7 @@ void refresh_login_chain()
 		std::string roomId;
 		std::string csrf;
 		std::string roomState; // §3.1: 场次/封禁一句话(空=不可用)
+		int liveStatus = -1;   // §3.1 live_status 原值(M1b 断流找回判据)
 	};
 	const bool legacy = g_config.config().use_legacy_endpoints;
 	Http::HttpClient::runAsync(
@@ -199,6 +206,7 @@ void refresh_login_chain()
 						Bili::BiliApi::getRoomInfo("getInfoByUser", result->roomId, stateMessage);
 					if (data.is_object()) {
 						const int live_status = data["live_status"].int_value();
+						result->liveStatus = live_status;
 						const char *state = live_status == 1 ? "直播中" : live_status == 2 ? "轮回" : "未开播";
 						result->roomState = std::string("场次:") + state;
 						if (data["lock_status_v2"].int_value() != 0)
@@ -221,13 +229,23 @@ void refresh_login_chain()
 				cfg.csrf_token = result->csrf;
 			}
 			g_config.save();
-			if (result->loggedIn)
-				set_status(LEVEL_INFO,
-					   "登录状态: 已登录 (mid=" + result->mid +
-						   (result->roomOk ? ", 房间=" + result->roomId : ", 房间信息获取失败") +
-						   (result->roomState.empty() ? "" : ", " + result->roomState) + ")");
-			else
+			// M1b 断流找回判据(契约 §7.2 前置): 服务端 live_status==1
+			// 且本地无在播认知 → 状态行给出恢复入口提示。
+			g_session_in_progress = result->liveStatus == 1;
+			g_confirm_end_session = false; // 每次刷新重置确认态
+			if (result->loggedIn) {
+				std::string status =
+					"登录状态: 已登录 (mid=" + result->mid +
+					(result->roomOk ? ", 房间=" + result->roomId : ", 房间信息获取失败") +
+					(result->roomState.empty() ? "" : ", " + result->roomState) + ")";
+				if (g_session_in_progress && !cfg.streaming)
+					status += " — 检测到服务端进行中场次而本地未推流,可点\"恢复推流\"找回";
+				set_status(g_session_in_progress && !cfg.streaming ? LEVEL_WARNING : LEVEL_INFO,
+					   status);
+			} else {
+				g_session_in_progress = false;
 				set_status(LEVEL_ERROR, "登录状态: 未登录/已失效 - " + result->message);
+			}
 		}));
 }
 
@@ -332,7 +350,7 @@ void do_login()
 // M1 服务改写管线: 开播信令拿到的 addr/key 写进当前 profile 的推流服务
 // (rtmp_custom 的 server 字段同时承载 rtmp:// 与 srt:// 方案,SRT 映射天然就位)。
 // 双轴分离: 插件只写配置,"开始直播"永远由用户在 OBS 点。主线程调用。
-void apply_stream_service(const std::string &addr, const std::string &code)
+void set_streaming_service(const std::string &addr, const std::string &code)
 {
 	config_t *profile = obs_frontend_get_profile_config();
 	if (!profile) {
@@ -350,6 +368,76 @@ void apply_stream_service(const std::string &addr, const std::string &code)
 	obs_data_release(settings);
 	obs_frontend_save_streaming_service();
 	obs_log(LOG_INFO, "推流地址已写入 OBS 推流服务(rtmp_custom)");
+}
+
+// M1b 断流找回(契约 §7): 服务端仍认为在播时找回推流地址/密钥并写回 OBS 服务。
+// 官方序: get_stream_by_roomId 直接给 data.rtmp{addr,code};取不到再问
+// GetUpStreamRtmp(can_change 时用 urls[0],密钥用本地留存的推流码)。
+void do_recover_stream()
+{
+	if (!begin_action("恢复推流"))
+		return;
+	auto config = g_config.config();
+	struct RecoverResult {
+		bool ok = false;
+		std::string message;
+		std::string addr;
+		std::string code;
+		std::string source; // 日志用:端点来源
+	};
+	auto result = std::make_shared<RecoverResult>();
+	Http::HttpClient::runAsync(
+		[config, result]() {
+			json11::Json stream = Bili::BiliApi::getActiveStream(config.room_id, result->message);
+			if (stream.is_object()) {
+				result->addr = stream["rtmp"]["addr"].string_value();
+				result->code = stream["rtmp"]["code"].string_value();
+				if (!result->addr.empty() && !result->code.empty()) {
+					result->source = "get_stream_by_roomId";
+					result->ok = true;
+					return;
+				}
+			}
+			// §7.2: 找回失败时问可推地址;密钥只能复用本地留存值。
+			bool canChange = false;
+			std::vector<std::string> urls;
+			std::string upMessage;
+			if (!Bili::BiliApi::getUpStreamRtmp(config.room_id, canChange, urls, upMessage)) {
+				result->message = "推流找回失败: " + upMessage;
+				return;
+			}
+			if (!canChange || urls.empty()) {
+				result->message = "服务端不提供可推地址" +
+						  (upMessage.empty() ? "" : ": " + upMessage);
+				return;
+			}
+			if (config.rtmp_code.empty()) {
+				result->message = "GetUpStreamRtmp 给出地址但本地无留存推流码,无法恢复密钥;请开播一次或手工填写";
+				return;
+			}
+			result->addr = urls[0];
+			result->code = config.rtmp_code;
+			result->source = "GetUpStreamRtmp";
+			result->ok = true;
+		},
+		guarded([result]() {
+			end_action();
+			if (!result->ok) {
+				set_status(LEVEL_ERROR, "恢复推流失败: " + result->message);
+				return;
+			}
+			auto &cfg = g_config.config();
+			cfg.streaming = true;
+			cfg.rtmp_addr = result->addr;
+			cfg.rtmp_code = result->code;
+			g_config.save();
+			set_streaming_service(result->addr, result->code);
+			g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code;
+			g_session_in_progress = false;
+			set_status(LEVEL_INFO,
+				   "已找回进行中场次(来源: " + result->source +
+					   "),推流地址已写入 OBS 服务,点击 OBS\"开始直播\"续流");
+		}));
 }
 
 void do_start_live()
@@ -398,7 +486,7 @@ void do_start_live()
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
 				g_config.save();
-				apply_stream_service(result->addr, result->code);
+				set_streaming_service(result->addr, result->code);
 				g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code;
 				set_status(LEVEL_INFO, "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流");
 			} else if (!result->faceQr.empty()) {
@@ -433,6 +521,7 @@ void do_stop_live()
 			end_action();
 			if (result->ok) {
 				g_config.config().streaming = false;
+				g_session_in_progress = false; // 服务端已停播,恢复入口关闭
 				g_stream_info.clear();
 				g_config.save();
 				set_status(LEVEL_INFO, "已停播");
@@ -585,6 +674,21 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 	case ACT_STOP_LIVE:
 		do_stop_live();
 		break;
+	case ACT_RECOVER:
+		do_recover_stream();
+		break;
+	case ACT_END_SESSION:
+		// 两段式确认:真实停播信令,第一次只改口,第二次才发(AGENTS:开播类
+		// 调用需用户在场并明确同意 —— 两次点击即在场同意)。
+		if (!g_confirm_end_session) {
+			g_confirm_end_session = true;
+			set_status(LEVEL_WARNING, "将向服务端发送停播信令结束进行中场次——再点一次确认");
+			refresh_props();
+		} else {
+			g_confirm_end_session = false;
+			do_stop_live();
+		}
+		break;
 	case ACT_OPEN_ROOM:
 		open_live_room();
 		break;
@@ -710,6 +814,15 @@ obs_properties_t *console_properties(void *data)
 	add_action_button(props, "btn_start_live", "开播", ACT_START_LIVE,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
 	add_action_button(props, "btn_stop_live", "停播", ACT_STOP_LIVE, !g_busy && cfg.streaming);
+	// M1b: 仅"服务端在播而本地未推流"时可用(恢复=找回地址写回服务,不碰推流按钮)。
+	add_action_button(props, "btn_recover", "恢复推流", ACT_RECOVER,
+			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming &&
+				  g_session_in_progress);
+	// 残留场次清理(真实停播信令):与恢复同场景互斥展示,两段式确认。
+	if (g_session_in_progress && !cfg.streaming)
+		add_action_button(props, "btn_end_session",
+				  g_confirm_end_session ? "确认结束场次!" : "结束进行中场次", ACT_END_SESSION,
+				  !g_busy && cfg.login_status && !cfg.room_id.empty());
 	add_action_button(props, "btn_open_room", "打开直播间", ACT_OPEN_ROOM, true);
 
 	obs_data_release(settings);
