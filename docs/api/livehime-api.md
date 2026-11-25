@@ -326,18 +326,23 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePage
 
 ### 请求
 ```
-POST https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck
+GET https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck
 ```
-参数: **无业务参数**(builder F-1804c4c00 指令级:map=公共参数+csrf,直接签名;
-旧文「%s 动态格式化」是 URL 模板字样,非参数);+sign。
+参数: **无业务参数**(builder F-1804c4c00 指令级:map=公共参数,直接签名;
+旧文「%s 动态格式化」是 URL 模板字样,非参数)。**传输层 = GET**——实网实测
+(2026-11-25 wire)POST 该路径 405 Method Not Allowed;此前「POST」为判读错误,
+csrf 不注入(GET 管线无 csrf,§1 csrf 规则=仅 POST)。
 
-### 响应(PreLiveBizCheck 解析组)
+### 响应(实网实测形状)
 ```
-data.game_promotion.{need_notice, biz_id, title, content, effect_button, no_effect_button, cool_down_days} …
+{code, message, ttl, data.realname_status}
 ```
-→ 合规弹窗/推广拦截。
+`realname_status`=0 视为实名未过(仓库阻断)。二进制解析簇里的
+`data.game_promotion.{need_notice, biz_id, title, content, effect_button,
+no_effect_button, cool_down_days}`(E-10 @0x112cfad,合规弹窗/推广拦截)**本会话
+实测未下发**,该簇可能服务别的 preLive 报文;解析保留以防服务端按场景下发。
 
-### 证据: builder F-1804c4c00;解析簇 E-10 @0x112cfad。仓库 `preLiveCheck()`(开播前置阻断,C2 关闭)。
+### 证据: builder F-1804c4c00;解析簇 E-10 @0x112cfad;实网 GET/响应 2026-11-25。仓库 `preLiveCheck()`。
 
 ## 3.6 GetRoomPreLiveStatus
 

@@ -526,14 +526,13 @@ bool BiliApi::updatePreLiveInfo(const Config &config, const std::string &title, 
 
 bool BiliApi::preLiveCheck(std::string &block_message)
 {
-	// Builder F-1804c4c00 指令级: 业务参数 map 为空——公共参数+csrf 直接签发放行。
+	// 实网钉死(2026-11-25 wire):GET——POST 该路径 405。builder F-1804c4c00 的
+	// map=公共参数直接签名结论不变,传输层此前判错。实响应仅 data.realname_status。
 	if (!ensureVersionInfo(block_message))
 		return false;
-	std::string data = appsign(common_params(), APP_KEY, APP_SECRET);
-	data += "&csrf_token=" + Http::HttpClient::cookie_value("bili_jct");
-	data += "&csrf=" + Http::HttpClient::cookie_value("bili_jct");
-	auto response = Http::HttpClient::post("https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck",
-					       data);
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck?" +
+			  appsign(common_params(), APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
 		block_message = "PreCheck 失败，状态码: " + std::to_string(response.status);
 		return false;
@@ -544,7 +543,15 @@ bool BiliApi::preLiveCheck(std::string &block_message)
 		block_message = "PreCheck 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
 		return false;
 	}
+	obs_log(LOG_INFO, "PreCheck: %s", response.data.c_str());
+	// 实网回读字段:实名未过则阻断(0=未实名)。
+	if (json["data"].is_object() && !json["data"]["realname_status"].is_null() &&
+	    json["data"]["realname_status"].int_value() == 0) {
+		block_message = "开播被阻断: 账号实名未通过(PreCheck realname_status=0)";
+		return false;
+	}
 	// PreLiveBizCheck 解析组(E-10 @0x112cfad): game_promotion.need_notice = 合规/推广弹窗阻断。
+	// 实测本会话响应无此键,保留解析以防服务端按场景下发。
 	const json11::Json promo = json["data"]["game_promotion"];
 	if (promo.is_object() && promo["need_notice"].bool_value()) {
 		block_message = "开播被合规提示阻断: " + promo["title"].string_value() + " - " +
