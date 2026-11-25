@@ -72,5 +72,8 @@ GetQualityData 拉取账号质量档 → 用户选档 → 插件将档位映射�
 **Cookie 白名单**:
 `SESSDATA`/`bili_jct`/`DedeUserID`/`buvid3`/`buvid4` 五键——服务端轮转后唯一回写 config.json 的键;其余服务端 Set-Cookie 只存内存 jar。
 
+**公共参数**:
+每个 app-blink/live 签名请求由注入器统一携带的 ts/version/appkey/platform=pc_link/build 五键(值来自服务端版本接口与常量);Web 域端点(nav、passport)不走这套。UpdatePreLiveInfo 是已证的管线例外:签名只覆盖公共参数。
+
 **开播信令身份 / 推流数据面**:
 前者 = Cookie+appsign 的 HTTPS 请求(插件负责);后者 = OBS 输出到 addr/key(插件只负责算好并写入)。
