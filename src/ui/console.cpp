@@ -372,8 +372,9 @@ void set_streaming_service(const std::string &addr, const std::string &code)
 	const char *json = obs_data_get_json(settings);
 	config_set_string(profile, "Service", "service", "rtmp_custom");
 	config_set_string(profile, "Service", "settings", json ? json : "{}");
-	if (json)
-		bfree(const_cast<char *>(json)); // obs_data_get_json 分配, libobs 约定释放
+	// OBS 30 起 obs_data_get_json 返回对象内部缓存串,随 release 释放;
+	// 此前按旧版 copy 语义 bfree 它 → double free,SIGABRT(core 实锤:
+	// _int_free invalid → obs_data_release → 本函数)。不得 free。
 	obs_data_release(settings);
 	obs_frontend_save_streaming_service();
 	obs_log(LOG_INFO, "推流地址已写入 OBS 推流服务(rtmp_custom)");
