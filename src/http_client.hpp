@@ -8,24 +8,23 @@ namespace Http {
 struct HttpResponse {
 	long status;
 	std::string data;
+	// Raw "k=v; k=v" capture of every Set-Cookie seen on this request's
+	// response chain (informational; the session jar is updated automatically).
 	std::string cookies;
 	bool timeout = false;
 };
 
+// Single egress for HTTP and for the request fingerprint: every request leaves
+// through get()/post() carrying the fixed LiveHime UA, the session
+// client_traceid and the cookie jar below — callers cannot add headers.
+// Cookie/UA semantics follow docs/api/livehime-api.md §1.1 (E-08 header set).
 class HttpClient {
 public:
 	static void init();
 	static void cleanup();
-	static HttpResponse get(const std::string &url, const std::vector<std::string> &headers = {},
-				long timeout_ms = 10000);
-	static HttpResponse post(const std::string &url, const std::string &data,
-				 const std::vector<std::string> &headers = {}, long timeout_ms = 10000);
-	// NOTE: the getAsync/postAsync callbacks still run on the HTTP worker thread;
-	// use runAsync() below when the result has to reach the OBS UI thread.
-	static void getAsync(const std::string &url, const std::vector<std::string> &headers,
-			     std::function<void(HttpResponse)> callback, long timeout_ms = 10000);
-	static void postAsync(const std::string &url, const std::string &data, const std::vector<std::string> &headers,
-			      std::function<void(HttpResponse)> callback, long timeout_ms = 10000);
+
+	static HttpResponse get(const std::string &url, long timeout_ms = 10000);
+	static HttpResponse post(const std::string &url, const std::string &data, long timeout_ms = 10000);
 
 	// Runs `work` on the HTTP worker thread, so a blocking network call can never
 	// stall the OBS UI thread, and delivers `done` on the OBS UI thread through
@@ -42,5 +41,32 @@ public:
 	// Posts `fn` onto the OBS UI thread immediately (no HTTP work involved).
 	// Same unload-drop guarantee as runAsync's `done`.
 	static void postToUi(std::function<void()> fn);
+
+	// --- session identity (cookie jar + traceid + UA) ---------------------
+	// The jar is domain-agnostic (single Bilibili session, as the plugin has
+	// always done); every key is sent on every request, but only a whitelist
+	// (SESSDATA/bili_jct/DedeUserID/buvid3/buvid4) is considered persistent.
+
+	// Seeds the jar from a persisted "k=v; k=v" cookie string (config.json).
+	static void load_session_cookies(const std::string &cookie_header);
+	// Full jar serialized for sending; "" when empty.
+	static std::string cookie_header();
+	// Jar serialized down to the persistent whitelist keys (config.json form).
+	static std::string persistent_cookie_header();
+	static std::string cookie_value(const std::string &key);
+	static bool has_cookie(const std::string &key);
+	// Adds/overwrites one key server-side style: triggers the change callback
+	// when a persistent key changes (used by the finger/spi buvid bootstrap).
+	static void inject_cookie(const std::string &key, const std::string &value);
+
+	// Fires (on the worker thread that observed the change) whenever a
+	// Set-Cookie rotation or inject_cookie changes a persistent key; the payload
+	// is the new persistent_cookie_header(). Handlers must not re-enter the jar.
+	static void set_cookie_change_callback(std::function<void(const std::string &)> cb);
+
+	// Session UUID (client_traceid header), generated once per plugin load.
+	static const std::string &traceid();
+	// The fixed LiveHime UA string (contract §1.1 / E-02 §5).
+	static const char *user_agent();
 };
 } // namespace Http

@@ -6,6 +6,11 @@
 #include <condition_variable>
 #include <atomic>
 #include <exception>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <random>
+#include <sstream>
 #include "plugin_utils.hpp"
 #include "util/base.h"
 
@@ -15,6 +20,195 @@
 #include <queue>
 
 namespace Http {
+
+// ---------------------------------------------------------------------------
+// fingerprint constants (contract §1.1; pinned to the reverse-engineering
+// baseline LiveHime 8.16.0.11349, UA template E-02 §5 — deliberately *not*
+// tied to the plugin's own version, and deliberately os/Windows on every
+// platform: the fingerprint is a clone, not a host description)
+// ---------------------------------------------------------------------------
+static const char *const LIVEHIME_UA =
+	"LiveHime/8.16.0.11349 os/Windows pc_app/livehime build/11349 osVer/10.0_22631 arch/x64";
+
+// Keys the server rotates that must survive a restart (login session + the
+// buvid3/buvid4 device identity). Everything else the server sets stays
+// in-memory only.
+static const char *const PERSIST_COOKIE_KEYS[] = {"SESSDATA", "bili_jct", "DedeUserID", "buvid3", "buvid4"};
+
+static std::string make_uuid_v4()
+{
+	std::random_device rd;
+	std::mt19937_64 gen((static_cast<uint64_t>(rd()) << 32) ^ rd());
+	std::uniform_int_distribution<uint32_t> dist(0, 15);
+	const char *hex = "0123456789abcdef";
+	std::string uuid;
+	uuid.reserve(36);
+	for (int i = 0; i < 36; ++i) {
+		if (i == 8 || i == 13 || i == 18 || i == 23) {
+			uuid += '-';
+			continue;
+		}
+		int nibble = dist(gen);
+		if (i == 14)
+			nibble = 4; // version 4 (3rd group starts after two dashes)
+		else if (i == 19)
+			nibble = (nibble & 0x3) | 0x8; // RFC 4122 variant
+		uuid += hex[nibble];
+	}
+	return uuid;
+}
+
+// ---------------------------------------------------------------------------
+// cookie jar + identity state (mutex-guarded: mutated on the worker thread by
+// response merges, read from the UI thread by the persistence plumbing)
+// ---------------------------------------------------------------------------
+namespace {
+std::mutex jar_mutex;
+std::map<std::string, std::string> cookie_jar;
+std::function<void(const std::string &)> cookie_change_callback;
+std::string g_traceid;
+
+bool is_persistent_key(const std::string &key)
+{
+	for (const char *candidate : PERSIST_COOKIE_KEYS) {
+		if (key == candidate)
+			return true;
+	}
+	return false;
+}
+
+// Caller holds jar_mutex.
+std::string serialize_jar_locked(bool persistent_only)
+{
+	std::string out;
+	for (const auto &entry : cookie_jar) {
+		if (persistent_only && !is_persistent_key(entry.first))
+			continue;
+		if (!out.empty())
+			out += "; ";
+		out += entry.first + "=" + entry.second;
+	}
+	return out;
+}
+
+// Merges "k=v[; k=v]*" pairs into the jar; returns true when a persistent key
+// changed. Empty pairs/garbage are skipped, never fatal.
+bool merge_pairs_locked(const std::string &pairs)
+{
+	bool persistent_changed = false;
+	size_t pos = 0;
+	while (pos < pairs.size()) {
+		size_t end = pairs.find(';', pos);
+		if (end == std::string::npos)
+			end = pairs.size();
+		std::string pair = pairs.substr(pos, end - pos);
+		pos = end + 1;
+		size_t start = pair.find_first_not_of(" \t");
+		if (start == std::string::npos)
+			continue;
+		size_t stop = pair.find_last_not_of(" \t");
+		pair = pair.substr(start, stop - start + 1);
+		size_t eq = pair.find('=');
+		if (eq == std::string::npos || eq == 0)
+			continue;
+		const std::string key = pair.substr(0, eq);
+		const std::string value = pair.substr(eq + 1);
+		if (value.empty())
+			continue; // deletion-style Set-Cookie: keep what we have
+		auto it = cookie_jar.find(key);
+		if (it != cookie_jar.end() && it->second == value)
+			continue;
+		cookie_jar[key] = value;
+		if (is_persistent_key(key))
+			persistent_changed = true;
+	}
+	return persistent_changed;
+}
+
+// Applies a jar mutation and, when persistent keys changed, notifies the
+// callback outside the lock (handlers post to the UI thread, never re-enter).
+void apply_and_notify(bool persistent_changed)
+{
+	if (!persistent_changed)
+		return;
+	std::function<void(const std::string &)> callback;
+	std::string snapshot;
+	{
+		std::lock_guard<std::mutex> lock(jar_mutex);
+		callback = cookie_change_callback;
+		snapshot = serialize_jar_locked(true);
+	}
+	if (callback)
+		callback(snapshot);
+}
+} // namespace
+
+void HttpClient::load_session_cookies(const std::string &cookie_header)
+{
+	bool changed;
+	{
+		std::lock_guard<std::mutex> lock(jar_mutex);
+		changed = merge_pairs_locked(cookie_header);
+	}
+	// Seeding from config.json does not count as a server rotation: no notify.
+	(void)changed;
+}
+
+std::string HttpClient::cookie_header()
+{
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	return serialize_jar_locked(false);
+}
+
+std::string HttpClient::persistent_cookie_header()
+{
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	return serialize_jar_locked(true);
+}
+
+std::string HttpClient::cookie_value(const std::string &key)
+{
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	auto it = cookie_jar.find(key);
+	return it == cookie_jar.end() ? std::string() : it->second;
+}
+
+bool HttpClient::has_cookie(const std::string &key)
+{
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	return cookie_jar.count(key) != 0;
+}
+
+void HttpClient::inject_cookie(const std::string &key, const std::string &value)
+{
+	bool changed;
+	{
+		std::lock_guard<std::mutex> lock(jar_mutex);
+		auto it = cookie_jar.find(key);
+		changed = !(it != cookie_jar.end() && it->second == value);
+		if (changed)
+			cookie_jar[key] = value;
+		changed = changed && is_persistent_key(key);
+	}
+	apply_and_notify(changed);
+}
+
+void HttpClient::set_cookie_change_callback(std::function<void(const std::string &)> cb)
+{
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	cookie_change_callback = std::move(cb);
+}
+
+const std::string &HttpClient::traceid()
+{
+	return g_traceid;
+}
+
+const char *HttpClient::user_agent()
+{
+	return LIVEHIME_UA;
+}
+
 static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
 	size_t realsize = size * nmemb;
@@ -43,6 +237,38 @@ static size_t headerCallback(char *buffer, size_t size, size_t nitems, void *use
 		*cookies += cookie;
 	}
 	return realsize;
+}
+
+// Official native header set (E-08 §1): UA / Cookie / client_traceid /
+// Content-Type / Accept-Language — no Accept, no Origin/Referer, no Sec-Ch-Ua
+// family, no charset on Content-Type. libcurl's automatic "Accept: */*" is
+// suppressed with the empty-value header trick.
+static struct curl_slist *build_fingerprint_headers(bool is_post)
+{
+	struct curl_slist *list = nullptr;
+	list = curl_slist_append(list, (std::string("User-Agent: ") + LIVEHIME_UA).c_str());
+	list = curl_slist_append(list, "Accept-Language: zh-CN,zh;q=0.9");
+	list = curl_slist_append(list, "Accept:");
+	if (is_post)
+		list = curl_slist_append(list, "Content-Type: application/x-www-form-urlencoded");
+	if (!HttpClient::traceid().empty())
+		list = curl_slist_append(list, ("client_traceid: " + HttpClient::traceid()).c_str());
+	const std::string cookies = HttpClient::cookie_header();
+	if (!cookies.empty())
+		list = curl_slist_append(list, ("Cookie: " + cookies).c_str());
+	return list;
+}
+
+// Merges this response's Set-Cookie capture into the session jar and notifies
+// persistent-key rotations (server-side SESSDATA refresh must not be lost).
+static void absorb_response_cookies(const std::string &captured)
+{
+	bool persistent_changed;
+	{
+		std::lock_guard<std::mutex> lock(jar_mutex);
+		persistent_changed = merge_pairs_locked(captured);
+	}
+	apply_and_notify(persistent_changed);
 }
 
 // All background work runs as opaque jobs on the single worker thread, which
@@ -130,6 +356,7 @@ void HttpClient::init()
 {
 	if (worker_thread.joinable())
 		return;
+	g_traceid = make_uuid_v4();
 	curl_global_init(CURL_GLOBAL_ALL);
 	stop_worker = false;
 	worker_thread = std::thread(workerLoop);
@@ -148,9 +375,15 @@ void HttpClient::cleanup()
 	// same reason; it is optional at process exit.
 	if (worker_thread.joinable())
 		worker_thread.detach();
+	// Drop the persistence hook so a late worker-side merge cannot call into
+	// a destroyed console.
+	{
+		std::lock_guard<std::mutex> lock(jar_mutex);
+		cookie_change_callback = nullptr;
+	}
 }
 
-HttpResponse HttpClient::get(const std::string &url, const std::vector<std::string> &headers, long timeout_ms)
+HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
 {
 	HttpResponse response;
 	response.status = 0;
@@ -170,10 +403,7 @@ HttpResponse HttpClient::get(const std::string &url, const std::vector<std::stri
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
-	struct curl_slist *header_list = nullptr;
-	for (const auto &header : headers) {
-		header_list = curl_slist_append(header_list, header.c_str());
-	}
+	struct curl_slist *header_list = build_fingerprint_headers(false);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
 
 	CURLcode res = curl_easy_perform(curl);
@@ -191,11 +421,11 @@ HttpResponse HttpClient::get(const std::string &url, const std::vector<std::stri
 	response.cookies = std::move(response_cookies);
 	curl_slist_free_all(header_list);
 	curl_easy_cleanup(curl);
+	absorb_response_cookies(response.cookies);
 	return response;
 }
 
-HttpResponse HttpClient::post(const std::string &url, const std::string &data, const std::vector<std::string> &headers,
-			      long timeout_ms)
+HttpResponse HttpClient::post(const std::string &url, const std::string &data, long timeout_ms)
 {
 	HttpResponse response;
 	response.status = 0;
@@ -217,10 +447,7 @@ HttpResponse HttpClient::post(const std::string &url, const std::string &data, c
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
-	struct curl_slist *header_list = nullptr;
-	for (const auto &header : headers) {
-		header_list = curl_slist_append(header_list, header.c_str());
-	}
+	struct curl_slist *header_list = build_fingerprint_headers(true);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
 
 	CURLcode res = curl_easy_perform(curl);
@@ -238,31 +465,8 @@ HttpResponse HttpClient::post(const std::string &url, const std::string &data, c
 	response.cookies = std::move(response_cookies);
 	curl_slist_free_all(header_list);
 	curl_easy_cleanup(curl);
+	absorb_response_cookies(response.cookies);
 	return response;
-}
-
-void HttpClient::getAsync(const std::string &url, const std::vector<std::string> &headers,
-			  std::function<void(HttpResponse)> callback, long timeout_ms)
-{
-	enqueue([url, headers, callback = std::move(callback), timeout_ms]() {
-		HttpResponse response = HttpClient::get(url, headers, timeout_ms);
-		if (workerStopping())
-			return; // unload in progress: skip callbacks that may touch destroyed state
-		if (callback)
-			callback(response);
-	});
-}
-
-void HttpClient::postAsync(const std::string &url, const std::string &data, const std::vector<std::string> &headers,
-			   std::function<void(HttpResponse)> callback, long timeout_ms)
-{
-	enqueue([url, data, headers, callback = std::move(callback), timeout_ms]() {
-		HttpResponse response = HttpClient::post(url, data, headers, timeout_ms);
-		if (workerStopping())
-			return; // unload in progress: skip callbacks that may touch destroyed state
-		if (callback)
-			callback(response);
-	});
 }
 
 void HttpClient::runAsync(std::function<void()> work, std::function<void()> done)

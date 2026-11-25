@@ -156,10 +156,13 @@ void end_action()
 	refresh_props();
 }
 
-// Verifies `cookies` against nav + room endpoints and persists the result.
-void refresh_login_chain(const std::string &cookies)
+// Verifies the session jar against nav + room endpoints and persists the
+// result. The jar is the single identity store (Http layer owns it); config
+// only mirrors the persisted cookie whitelist.
+void refresh_login_chain()
 {
-	if (cookies.empty()) {
+	// buvid3 alone is not a login session: only SESSDATA justifies nav.
+	if (!Http::HttpClient::has_cookie("SESSDATA")) {
 		set_status(LEVEL_INFO, "登录状态: 未登录");
 		refresh_props();
 		return;
@@ -176,16 +179,16 @@ void refresh_login_chain(const std::string &cookies)
 		std::string csrf;
 	};
 	Http::HttpClient::runAsync(
-		[cookies, result]() {
-			result->loggedIn = Bili::BiliApi::checkLoginStatus(cookies, result->message, result->mid);
+		[result]() {
+			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
 			if (result->loggedIn)
 				result->roomOk =
-					Bili::BiliApi::getRoomIdAndCsrf(cookies, result->roomId, result->csrf, result->message);
+					Bili::BiliApi::getRoomIdAndCsrf(result->roomId, result->csrf, result->message);
 		},
-		guarded([cookies, result]() {
+		guarded([result]() {
 			end_action();
 			auto &cfg = g_config.config();
-			cfg.cookies = cookies;
+			cfg.cookies = Http::HttpClient::persistent_cookie_header();
 			cfg.login_status = result->loggedIn;
 			if (result->loggedIn)
 				cfg.mid = result->mid;
@@ -204,24 +207,40 @@ void refresh_login_chain(const std::string &cookies)
 		}));
 }
 
+// Fingerprint snapshot on the log (M0b acceptance): shows the fixed LiveHime
+// UA, the session traceid and where buvid3 came from (persisted config vs a
+// fresh x/frontend/finger/spi fetch). Runs on the worker; logs directly.
+void start_fingerprint_probe()
+{
+	Http::HttpClient::runAsync(
+		[]() {
+			const bool from_config = Http::HttpClient::has_cookie("buvid3");
+			if (!from_config)
+				Bili::BiliApi::fetch_buvid();
+			const std::string b3 = Http::HttpClient::cookie_value("buvid3");
+			obs_log(LOG_INFO, "指纹: UA=%s | traceid=%s | buvid3=%s (%s)",
+				Http::HttpClient::user_agent(), Http::HttpClient::traceid().c_str(),
+				b3.empty() ? "获取失败" : b3.c_str(), from_config ? "来自配置" : "新取");
+		},
+		nullptr);
+}
+
 // One-shot login attempt: fetch QR, hand it to the browser, poll until the
 // user confirms, the code expires, or the module unloads.
 void do_login()
 {
 	if (!begin_action("扫码登录"))
 		return;
-	const std::string cookies = g_config.config().cookies;
 	struct LoginResult {
 		bool ok = false;
-		std::string cookies;
 		std::string message;
 	};
 	auto result = std::make_shared<LoginResult>();
 
 	Http::HttpClient::runAsync(
-		[result, cookies]() {
+		[result]() {
 			std::string qrData, qrKey, msg;
-			if (!Bili::BiliApi::getQrCode(cookies, qrData, qrKey, msg)) {
+			if (!Bili::BiliApi::getQrCode(qrData, qrKey, msg)) {
 				result->message = "获取二维码失败: " + msg;
 				return;
 			}
@@ -247,14 +266,15 @@ void do_login()
 			}
 
 			std::string lastMessage;
-			for (int attempt = 0; attempt < 180; ++attempt) {
-				std::this_thread::sleep_for(std::chrono::seconds(1));
+			// Official login page polls at ~2s (E-06); keep the 3-minute
+			// overall expiry window.
+			for (int attempt = 0; attempt < 90; ++attempt) {
+				std::this_thread::sleep_for(std::chrono::seconds(2));
 				if (Http::HttpClient::isStopping())
 					return;
-				std::string cookiesOut, pollMsg;
-				if (Bili::BiliApi::qrLogin(qrKey, cookiesOut, pollMsg)) {
+				std::string pollMsg;
+				if (Bili::BiliApi::qrLogin(qrKey, pollMsg)) {
 					result->ok = true;
-					result->cookies = std::move(cookiesOut);
 					return;
 				}
 				if (pollMsg.find("失效") != std::string::npos) {
@@ -275,7 +295,7 @@ void do_login()
 		guarded([result]() {
 			end_action();
 			if (result->ok) {
-				refresh_login_chain(result->cookies);
+				refresh_login_chain();
 				return;
 			}
 			if (!result->message.empty())
@@ -488,7 +508,7 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		do_login();
 		break;
 	case ACT_REFRESH:
-		refresh_login_chain(g_config.config().cookies);
+		refresh_login_chain();
 		break;
 	case ACT_APPLY_TITLE:
 		do_apply_title();
@@ -666,9 +686,23 @@ void ConsoleCreate()
 	g_draft_area = g_config.config().area_id;
 	g_source = obs_source_create_private(CONSOLE_ID, "B站直播控制台", nullptr);
 
-	const std::string cookies = g_config.config().cookies;
-	if (!cookies.empty())
-		refresh_login_chain(cookies);
+	// Session identity boot: config.json carries the persisted cookie
+	// whitelist into the jar; server-side rotations of those keys come back
+	// through the change callback (worker thread → UI thread → config.json).
+	Http::HttpClient::load_session_cookies(g_config.config().cookies);
+	Http::HttpClient::set_cookie_change_callback([](const std::string &persisted) {
+		Http::HttpClient::postToUi(guarded([persisted]() {
+			auto &cfg = g_config.config();
+			if (cfg.cookies == persisted)
+				return;
+			cfg.cookies = persisted;
+			g_config.save();
+		}));
+	});
+	start_fingerprint_probe();
+
+	if (Http::HttpClient::has_cookie("SESSDATA"))
+		refresh_login_chain();
 	else
 		set_status(LEVEL_INFO, "未登录:点击\"扫码登录\"");
 }

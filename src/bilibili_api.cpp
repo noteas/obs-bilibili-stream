@@ -19,29 +19,6 @@ static std::string jsonErrorMessage(const json11::Json &json)
 	return message;
 }
 
-static const std::vector<std::string> default_headers = {
-	"Accept: application/json, text/plain, */*",
-	"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-	"Content-Type: application/x-www-form-urlencoded; charset=UTF-8",
-	"Origin: https://link.bilibili.com",
-	"Referer: https://link.bilibili.com/p/center/index",
-	"Sec-Ch-Ua: \"Microsoft Edge\";v=\"129\", \"Not=A?Brand\";v=\"8\", \"Chromium\";v=\"129\"",
-	"Sec-Ch-Ua-Mobile: ?0",
-	"Sec-Ch-Ua-Platform: \"Windows\"",
-	"Sec-Fetch-Dest: empty",
-	"Sec-Fetch-Mode: cors",
-	"Sec-Fetch-Site: same-site",
-	"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"};
-
-std::vector<std::string> BiliApi::buildHeaders(const std::string &cookies)
-{
-	std::vector<std::string> headers = default_headers;
-	if (!cookies.empty()) {
-		headers.push_back("Cookie: " + cookies);
-	}
-	return headers;
-}
-
 std::string BiliApi::appsign(const std::vector<std::pair<std::string, std::string>> &params, const std::string &app_key,
 			     const std::string &app_sec)
 {
@@ -89,11 +66,10 @@ void BiliApi::cleanup()
 	Http::HttpClient::cleanup();
 }
 
-bool BiliApi::getQrCode(const std::string &cookies, std::string &qr_data, std::string &qr_key, std::string &message)
+bool BiliApi::getQrCode(std::string &qr_data, std::string &qr_key, std::string &message)
 {
-	auto headers = buildHeaders(cookies);
 	auto response =
-		Http::HttpClient::get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate", headers);
+		Http::HttpClient::get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate");
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "获取二维码失败，状态码: %d, 数据: %s", response.status, response.data.c_str());
 		message = "获取二维码失败，状态码: " + std::to_string(response.status);
@@ -121,10 +97,10 @@ bool BiliApi::getQrCode(const std::string &cookies, std::string &qr_data, std::s
 	return true;
 }
 
-bool BiliApi::qrLogin(std::string &qr_key, std::string &cookies, std::string &message)
+bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 {
 	std::string url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qr_key;
-	auto response = Http::HttpClient::get(url, default_headers);
+	auto response = Http::HttpClient::get(url);
 	obs_log(LOG_INFO, "检查二维码登录状态: %s", response.data.c_str());
 	if (response.status != 200) {
 		message = "检查二维码登录状态失败，状态码: " + std::to_string(response.status);
@@ -160,48 +136,39 @@ bool BiliApi::qrLogin(std::string &qr_key, std::string &cookies, std::string &me
 		return false;
 	}
 
-	cookies = response.cookies;
-	if (cookies.empty()) {
+	// A successful poll answers with Set-Cookie: the HTTP layer has merged it
+	// into the session jar already. Since 2026-08 the success URL is a
+	// crossDomain ticket URL (passport.biligame.com/x/passport-login/web/
+	// crossDomain?ticket=…) that no longer embeds SESSDATA/bili_jct/
+	// DedeUserID; following it sets the login cookies via Set-Cookie, and the
+	// legacy URL-query parameters stay as the last-resort fallback.
+	if (!Http::HttpClient::has_cookie("SESSDATA")) {
 		std::string loginUrl = json["data"]["url"].string_value();
 		if (!loginUrl.empty()) {
-			// bilibili changed the login flow (2026-08): the success URL is now
-			// a crossDomain ticket URL (passport.biligame.com/x/passport-login/
-			// web/crossDomain?ticket=...&gourl=...&first_domain=...) which no
-			// longer embeds SESSDATA/bili_jct/DedeUserID. Following it sets the
-			// login cookies via Set-Cookie response headers (the HTTP client
-			// captures those but does not follow the redirect itself).
 			obs_log(LOG_INFO, "从 crossDomain 跳转 URL 获取 Cookies...");
-			auto ticketResp = Http::HttpClient::get(loginUrl, default_headers);
-			if (!ticketResp.cookies.empty()) {
-				cookies = ticketResp.cookies;
-				obs_log(LOG_INFO, "crossDomain Cookies 获取成功");
-			} else {
-				obs_log(LOG_INFO, "从 URL 解析 Cookies...");
-
-				auto extractParam = [&](const std::string &key) -> std::string {
-					std::string search = key + "=";
-					size_t start = loginUrl.find(search);
-					if (start == std::string::npos)
-						return "";
-					start += search.length();
-					size_t end = loginUrl.find("&", start);
-					if (end == std::string::npos)
-						end = loginUrl.length();
-					return loginUrl.substr(start, end - start);
-				};
-
-				std::string sessData = extractParam("SESSDATA");
-				std::string biliJct = extractParam("bili_jct"); // 即 csrf
-				std::string dedeUserId = extractParam("DedeUserID");
-
-				if (!sessData.empty() && !biliJct.empty()) {
-					cookies = "SESSDATA=" + sessData + "; bili_jct=" + biliJct +
-						  "; DedeUserID=" + dedeUserId + ";";
-				}
+			Http::HttpClient::get(loginUrl);
+		}
+		if (!Http::HttpClient::has_cookie("SESSDATA")) {
+			obs_log(LOG_INFO, "从 URL 解析 Cookies...");
+			auto extractParam = [&](const std::string &key) -> std::string {
+				std::string search = key + "=";
+				size_t start = loginUrl.find(search);
+				if (start == std::string::npos)
+					return "";
+				start += search.length();
+				size_t end = loginUrl.find("&", start);
+				if (end == std::string::npos)
+					end = loginUrl.length();
+				return loginUrl.substr(start, end - start);
+			};
+			for (const char *key : {"SESSDATA", "bili_jct", "DedeUserID"}) {
+				std::string value = extractParam(key);
+				if (!value.empty())
+					Http::HttpClient::inject_cookie(key, value);
 			}
 		}
 	}
-	if (cookies.empty()) {
+	if (!Http::HttpClient::has_cookie("SESSDATA")) {
 		obs_log(LOG_ERROR, "无法获取登录 Cookies");
 		message = "无法获取登录 Cookies";
 		return false;
@@ -211,10 +178,13 @@ bool BiliApi::qrLogin(std::string &qr_key, std::string &cookies, std::string &me
 	return true;
 }
 
-bool BiliApi::checkLoginStatus(const std::string &cookies, std::string &message, std::string &mid)
+bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 {
-	auto headers = buildHeaders(cookies);
-	auto response = Http::HttpClient::get("https://api.bilibili.com/x/web-interface/nav", headers);
+	// Contract §2.9: the official nav builder carries appsign (no business
+	// params, just ts/appkey/sign).
+	std::vector<std::pair<std::string, std::string>> nav_params = {{"ts", std::to_string(time(nullptr))}};
+	std::string nav_url = "https://api.bilibili.com/x/web-interface/nav?" + appsign(nav_params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(nav_url);
 	obs_log(LOG_INFO, "检查登录状态: %s", response.data.c_str());
 	if (response.status != 200) {
 		message = "检查登录状态失败，状态码: " + std::to_string(response.status);
@@ -241,26 +211,17 @@ bool BiliApi::checkLoginStatus(const std::string &cookies, std::string &message,
 	return is_login;
 }
 
-bool BiliApi::getRoomIdAndCsrf(const std::string &cookies, std::string &room_id, std::string &csrf_token,
-			       std::string &message)
+bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message)
 {
-	if (cookies.empty()) {
-		obs_log(LOG_ERROR, "Cookies 为空");
-		message = "Cookies 为空";
+	const std::string dede_user_id = Http::HttpClient::cookie_value("DedeUserID");
+	if (dede_user_id.empty()) {
+		obs_log(LOG_ERROR, "Cookie 中无 DedeUserID");
+		message = "Cookie 中无 DedeUserID";
 		return false;
 	}
-
-	size_t pos = cookies.find("DedeUserID=");
-	if (pos == std::string::npos) {
-		obs_log(LOG_ERROR, "无法从 Cookies 中提取 DedeUserID");
-		message = "无法从 Cookies 中提取 DedeUserID";
-		return false;
-	}
-	std::string dede_user_id = cookies.substr(pos + 11, cookies.find(';', pos) - pos - 11);
 
 	std::string url = "https://api.live.bilibili.com/room/v2/Room/room_id_by_uid?uid=" + dede_user_id;
-	auto headers = buildHeaders(cookies);
-	auto response = Http::HttpClient::get(url, headers);
+	auto response = Http::HttpClient::get(url);
 	obs_log(LOG_INFO, "获取房间号: %s", response.data.c_str());
 	if (response.status != 200) {
 		message = "获取房间号失败，状态码: " + std::to_string(response.status);
@@ -285,12 +246,11 @@ bool BiliApi::getRoomIdAndCsrf(const std::string &cookies, std::string &room_id,
 	}
 
 	room_id = std::to_string(json["data"]["room_id"].int_value());
-	pos = cookies.find("bili_jct=");
-	if (pos == std::string::npos) {
+	csrf_token = Http::HttpClient::cookie_value("bili_jct");
+	if (csrf_token.empty()) {
 		//obs_log(LOG_ERROR, "无法从 Cookies 中提取 bili_jct");
 		return false;
 	}
-	csrf_token = cookies.substr(pos + 9, cookies.find(';', pos) - pos - 9);
 
 	//obs_log(LOG_INFO, "获取 room_id 和 csrf_token 成功: room_id=%s, csrf_token=%s", room_id.c_str(), csrf_token.c_str());
 	return true;
@@ -298,7 +258,7 @@ bool BiliApi::getRoomIdAndCsrf(const std::string &cookies, std::string &room_id,
 
 json11::Json BiliApi::getPartitionList(std::string &message)
 {
-	auto response = Http::HttpClient::get("https://api.live.bilibili.com/room/v1/Area/getList", default_headers);
+	auto response = Http::HttpClient::get("https://api.live.bilibili.com/room/v1/Area/getList");
 	obs_log(LOG_INFO, "获取分区列表: %s", response.data.c_str());
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "获取分区列表失败，状态码: %d", response.status);
@@ -336,8 +296,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		"https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePageLiveVersion?" +
 		version_query;
 
-	auto headers = buildHeaders(config.cookies);
-	auto version_response = Http::HttpClient::get(version_url, headers);
+	auto version_response = Http::HttpClient::get(version_url);
 	obs_log(LOG_INFO, "获取直播版本信息: %s", version_response.data.c_str());
 	if (version_response.status != 200) {
 		obs_log(LOG_ERROR, "获取直播版本信息失败，状态码: %ld", version_response.status);
@@ -373,8 +332,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 									 {"ts", std::to_string(time(nullptr))}};
 	std::string start_data = appsign(start_params, APP_KEY, APP_SECRET);
 
-	auto response =
-		Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/startLive", start_data, headers);
+	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/startLive", start_data);
 	obs_log(LOG_INFO, "启动直播: %s", response.data.c_str());
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "启动直播失败，状态码: %ld", response.status);
@@ -390,9 +348,27 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	}
 
 	int code = json["code"].int_value();
+
+	// B4① (contract §4.1 step 12, §1.2 dispatch table): data.notice is the
+	// server's blocking dialog payload (封禁/警告). It must surface verbatim
+	// as the error status line — currently a notice silently degrades into a
+	// "未获取到推流地址" report. Full dialog UX (button_url) is M1 scope.
+	std::string notice_line;
+	if (json["data"]["notice"].is_object()) {
+		const json11::Json notice = json["data"]["notice"];
+		const std::string title = notice["title"].string_value();
+		const std::string msg = notice["msg"].string_value();
+		if (!title.empty() || !msg.empty()) {
+			notice_line = (title.empty() ? "服务端提示" : title) + ": " + msg;
+			const std::string url = notice["button_url"].string_value();
+			if (!url.empty())
+				notice_line += "(详情: " + url + ")";
+		}
+	}
+
 	obs_log(LOG_INFO, "开始直播，mid: %s", mid.c_str());
 	if (code != 0) {
-		message = jsonErrorMessage(json);
+		message = notice_line.empty() ? jsonErrorMessage(json) : notice_line;
 		if (message.empty())
 			message = "开播失败，错误码: " + std::to_string(code);
 
@@ -417,6 +393,13 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		return false;
 	}
 
+	// §4.1 第12步对成功分支的语义同样是弹窗阻断:有 notice 就不算可开播。
+	if (!notice_line.empty()) {
+		obs_log(LOG_ERROR, "开播被服务端 notice 阻断: %s", notice_line.c_str());
+		message = notice_line;
+		return false;
+	}
+
 	rtmp_addr = json["data"]["rtmp"]["addr"].string_value();
 	rtmp_code = json["data"]["rtmp"]["code"].string_value();
 	if (rtmp_addr.empty() || rtmp_code.empty()) {
@@ -431,10 +414,17 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 
 bool BiliApi::stopLive(const Config &config, std::string &message)
 {
-	std::string data = "room_id=" + config.room_id + "&platform=pc_link&csrf_token=" + config.csrf_token +
-			   "&csrf=" + config.csrf_token;
-	auto headers = buildHeaders(config.cookies);
-	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/stopLive", data, headers);
+	// Contract §6.1 (builder F-1801482d0): room_id is the only business
+	// parameter, csrf pair + ts/appkey/sign come from the pipeline — and the
+	// official request carries no `platform`.
+	std::vector<std::pair<std::string, std::string>> stop_params = {
+		{"room_id", config.room_id},
+		{"csrf_token", config.csrf_token},
+		{"csrf", config.csrf_token},
+		{"ts", std::to_string(time(nullptr))},
+	};
+	std::string data = appsign(stop_params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/stopLive", data);
 	obs_log(LOG_INFO, "停止直播: %s", response.data.c_str());
 	if (response.status != 200) {
 		message = "停止直播失败，状态码: " + std::to_string(response.status);
@@ -476,8 +466,7 @@ bool BiliApi::updateRoomInfo(const Config &config, std::string &message, const s
 		data += "&area_id=" + std::to_string(areaId);
 	}
 	data += "&csrf_token=" + config.csrf_token + "&csrf=" + config.csrf_token;
-	auto headers = buildHeaders(config.cookies);
-	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/update", data, headers);
+	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/update", data);
 	obs_log(LOG_INFO, "更新房间信息: %s", response.data.c_str());
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "获取更新房间信息失败，状态码: %ld", response.status);
@@ -497,5 +486,29 @@ bool BiliApi::updateRoomInfo(const Config &config, std::string &message, const s
 
 	obs_log(LOG_INFO, "直播间信息更新成功: %s", title.c_str());
 	return true;
+}
+
+void BiliApi::fetch_buvid()
+{
+	auto response = Http::HttpClient::get("https://api.bilibili.com/x/frontend/finger/spi");
+	if (response.status != 200) {
+		obs_log(LOG_WARNING, "获取 buvid 失败，状态码: %ld（不影响现有功能，继续裸请求）", response.status);
+		return;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		obs_log(LOG_WARNING, "获取 buvid 响应无效: %s", (err.empty() ? jsonErrorMessage(json) : err).c_str());
+		return;
+	}
+	const std::string b3 = json["data"]["b_3"].string_value();
+	const std::string b4 = json["data"]["b_4"].string_value();
+	if (b3.empty()) {
+		obs_log(LOG_WARNING, "获取 buvid 响应缺少 b_3，忽略");
+		return;
+	}
+	Http::HttpClient::inject_cookie("buvid3", b3);
+	if (!b4.empty())
+		Http::HttpClient::inject_cookie("buvid4", b4);
 }
 } // namespace Bili

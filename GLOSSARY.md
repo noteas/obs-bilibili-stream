@@ -63,5 +63,14 @@ GetQualityData 拉取账号质量档 → 用户选档 → 插件将档位映射�
 **原生画像**:
 模仿直播姬原生客户端的请求指纹:LiveHime UA、无 Origin/Referer、无 charset、携带 buvid3。全仓库唯一采用形态(与浏览器画像互斥,不做开关)。
 
+**设备身份(buvid3/buvid4)**:
+首启经 `x/frontend/finger/spi` 取一次,之后跨启动复用(持久化,见 Cookie 白名单);不是登录凭据,未登录也携带。
+
+**会话追踪串(client_traceid)**:
+每次插件加载生成的 UUIDv4,同一 OBS 会话内全部请求同值,随请求头携带。
+
+**Cookie 白名单**:
+`SESSDATA`/`bili_jct`/`DedeUserID`/`buvid3`/`buvid4` 五键——服务端轮转后唯一回写 config.json 的键;其余服务端 Set-Cookie 只存内存 jar。
+
 **开播信令身份 / 推流数据面**:
 前者 = Cookie+appsign 的 HTTPS 请求(插件负责);后者 = OBS 输出到 addr/key(插件只负责算好并写入)。
