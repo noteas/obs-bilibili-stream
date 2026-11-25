@@ -788,11 +788,14 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 			return false;
 		}
 		if (code == 60043) {
+			// 官方 60043 中间页(契约 §1.2/§3.9,二进制实证):
+			// auth-middle.html?source_event=200。旧拼法
+			// face-auth-middle.html?source_event=400 是错误页面族,
+			// 人脸流程不会在官方风控侧落地(实网 2026-11-25 触发实证)。
 			std::string face_url =
-				"https://www.bilibili.com/blackboard/live/face-auth-middle.html?source_event=400&mid=" +
-				mid;
+				"https://www.bilibili.com/blackboard/live/auth-middle.html?source_event=200&mid=" + mid;
 			obs_log(LOG_WARNING, "60043 需要人脸识别，URL: %s", face_url.c_str());
-			message = "需要人脸验证，请扫描二维码" + face_url;
+			message = "需要人脸验证，请在打开的页面完成认证后重新开播: " + face_url;
 			face_qr = face_url;
 			return false;
 		}

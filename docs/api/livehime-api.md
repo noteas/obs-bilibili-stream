@@ -71,6 +71,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | -101 | 未登录 → 登录流程 |
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
+| 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试) |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
 
@@ -393,7 +394,7 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 ### 请求
 `preLive/GetRealnameApplyStatus`、`preLive/IsUserIdentifiedByFaceAuth`、`preLive/ReportFaceRecognition`(路径 E-05, 参数 **(未定)**)。
 
-### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 仅事后 60024/60043 出码(`:401-419`), 60043 拼 `face-auth-middle.html?source_event=400` 与官方 `auth-middle.html?source_event=200` 不同族 ⚠️。
+### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 仅事后 60024/60043 出码;60043 中间页**已对齐官方** `auth-middle.html?source_event=200&mid=`(2026-11-25 实网首触 60043 时暴露旧拼法 `face-auth-middle.html?source_event=400` 属错误页面族,已修)。
 
 ---
 
