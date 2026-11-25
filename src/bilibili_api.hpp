@@ -24,6 +24,9 @@ struct Config {
 	// 隐藏配置(无 UI,手改 config.json):true = 走 Web 老端点
 	// (room_id_by_uid / Room/update),默认 false = 官方端点(契约 §3.1/§4.2/§4.3)。
 	bool use_legacy_endpoints = false;
+	// 上游选点透传(§5.7):非空才随 startLive 注入;插件不做测速本身。
+	std::string recommend_protocol;
+	std::string recommend_ip;
 };
 
 // Endpoints never carry identity arguments: cookies, UA and client_traceid are
@@ -80,6 +83,15 @@ public:
 	// §4.2 UpdatePreLiveInfo (播前改标题等): sign covers common params ONLY, then
 	// mobi_app=pc_link + title (non-empty) + csrf pair are appended (F-180151c10).
 	static bool updatePreLiveInfo(const Config &config, const std::string &title, std::string &message);
+	// §3.5 PreCheck (开播前合规/推广拦截): POST with NO business params (builder
+	// F-1804c4c00: bare common+csrf+sign). Returns false when data.game_promotion
+	// .need_notice blocks the start; block_message carries title/content for the
+	// status line. Transport/parse failures return false with the failure message.
+	static bool preLiveCheck(std::string &block_message);
+	// §3.6 GetRoomPreLiveStatus: GET, no business params (session-keyed; parser
+	// F-180447550 reads data.status int ONLY). Value set not pinned — surfaced
+	// raw for observation.
+	static bool getRoomPreLiveStatus(int &status, std::string &message);
 
 private:
 	static std::string appsign(const std::vector<std::pair<std::string, std::string>> &params,

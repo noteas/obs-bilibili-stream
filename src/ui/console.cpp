@@ -3,6 +3,7 @@
 #include <obs.h>
 #include <obs-module.h>
 #include <obs-frontend-api.h>
+#include <util/config-file.h>
 
 #include <atomic>
 #include <charconv>
@@ -328,6 +329,29 @@ void do_login()
 		}));
 }
 
+// M1 服务改写管线: 开播信令拿到的 addr/key 写进当前 profile 的推流服务
+// (rtmp_custom 的 server 字段同时承载 rtmp:// 与 srt:// 方案,SRT 映射天然就位)。
+// 双轴分离: 插件只写配置,"开始直播"永远由用户在 OBS 点。主线程调用。
+void apply_stream_service(const std::string &addr, const std::string &code)
+{
+	config_t *profile = obs_frontend_get_profile_config();
+	if (!profile) {
+		obs_log(LOG_WARNING, "无法访问 OBS profile 配置,推流地址未写入服务");
+		return;
+	}
+	obs_data_t *settings = obs_data_create();
+	obs_data_set_string(settings, "server", addr.c_str());
+	obs_data_set_string(settings, "key", code.c_str());
+	const char *json = obs_data_get_json(settings);
+	config_set_string(profile, "Service", "service", "rtmp_custom");
+	config_set_string(profile, "Service", "settings", json ? json : "{}");
+	if (json)
+		bfree(const_cast<char *>(json)); // obs_data_get_json 分配, libobs 约定释放
+	obs_data_release(settings);
+	obs_frontend_save_streaming_service();
+	obs_log(LOG_INFO, "推流地址已写入 OBS 推流服务(rtmp_custom)");
+}
+
 void do_start_live()
 {
 	if (!begin_action("开播"))
@@ -346,6 +370,21 @@ void do_start_live()
 
 	Http::HttpClient::runAsync(
 		[config, result]() mutable {
+			// 开播前置(官方序): PreCheck 合规拦截(§3.5)→ 播前状态观测(§3.6,
+			// 取值域未钉死,仅记日志)→ startLive。legacy 下跳过 PreCheck
+			// (官方端点专属)。
+			if (!config.use_legacy_endpoints) {
+				if (!Bili::BiliApi::preLiveCheck(result->message)) {
+					obs_log(LOG_WARNING, "开播前置检查未通过: %s", result->message.c_str());
+					return;
+				}
+				int preStatus = -1;
+				std::string statusMessage;
+				if (Bili::BiliApi::getRoomPreLiveStatus(preStatus, statusMessage))
+					obs_log(LOG_INFO, "播前状态 GetRoomPreLiveStatus: status=%d", preStatus);
+				else
+					obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
+			}
 			result->ok = Bili::BiliApi::startLive(config, result->addr, result->code, result->message,
 							     result->faceQr, result->mid);
 		},
@@ -359,8 +398,9 @@ void do_start_live()
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
 				g_config.save();
+				apply_stream_service(result->addr, result->code);
 				g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code;
-				set_status(LEVEL_INFO, "开播成功,请在 OBS 中点击\"开始直播\"推流");
+				set_status(LEVEL_INFO, "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流");
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
 				// channel as the login QR.

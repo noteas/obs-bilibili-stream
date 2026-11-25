@@ -524,6 +524,59 @@ bool BiliApi::updatePreLiveInfo(const Config &config, const std::string &title, 
 	return true;
 }
 
+bool BiliApi::preLiveCheck(std::string &block_message)
+{
+	// Builder F-1804c4c00 指令级: 业务参数 map 为空——公共参数+csrf 直接签发放行。
+	if (!ensureVersionInfo(block_message))
+		return false;
+	std::string data = appsign(common_params(), APP_KEY, APP_SECRET);
+	data += "&csrf_token=" + Http::HttpClient::cookie_value("bili_jct");
+	data += "&csrf=" + Http::HttpClient::cookie_value("bili_jct");
+	auto response = Http::HttpClient::post("https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck",
+					       data);
+	if (response.status != 200) {
+		block_message = "PreCheck 失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		block_message = "PreCheck 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	// PreLiveBizCheck 解析组(E-10 @0x112cfad): game_promotion.need_notice = 合规/推广弹窗阻断。
+	const json11::Json promo = json["data"]["game_promotion"];
+	if (promo.is_object() && promo["need_notice"].bool_value()) {
+		block_message = "开播被合规提示阻断: " + promo["title"].string_value() + " - " +
+				promo["content"].string_value();
+		obs_log(LOG_WARNING, "PreCheck game_promotion 阻断: biz_id=%d cool_down_days=%d",
+			promo["biz_id"].int_value(), promo["cool_down_days"].int_value());
+		return false;
+	}
+	return true;
+}
+
+bool BiliApi::getRoomPreLiveStatus(int &status, std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return false;
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/index/GetRoomPreLiveStatus?" +
+			  appsign(common_params(), APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "GetRoomPreLiveStatus 失败，状态码: " + std::to_string(response.status);
+		return false;
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "GetRoomPreLiveStatus 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return false;
+	}
+	status = json["data"]["status"].int_value(); // F-180447550: 唯一回读字段
+	return true;
+}
+
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			std::string &face_qr, std::string &mid)
 {
@@ -539,11 +592,20 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 
 	// E-09 §1 order: business params → csrf pair → appsign → sign.
 	// platform/build/version/ts arrive via the common injector clone.
+	// checked="0": 恒注 (itoa(0) 实证); type="1": custom-rtmp 配置默认关时恒注,
+	// 值 = '1'+UI 开播类型索引, 插件无类型选择 ⇒ 索引 0 (F-180141ed0)。
 	std::vector<std::pair<std::string, std::string>> start_params = {{"room_id", config.room_id},
 									 {"area_v2", std::to_string(config.area_id)},
-									 {"backup_stream", "0"},
-									 {"csrf_token", config.csrf_token},
-									 {"csrf", config.csrf_token}};
+									 {"checked", "0"},
+									 {"type", "1"},
+									 {"backup_stream", "0"}};
+	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
+	if (!config.recommend_protocol.empty())
+		start_params.push_back({"recommend_protocol", config.recommend_protocol});
+	if (!config.recommend_ip.empty())
+		start_params.push_back({"recommend_ip", config.recommend_ip});
+	start_params.push_back({"csrf_token", config.csrf_token});
+	start_params.push_back({"csrf", config.csrf_token});
 	auto cp = common_params();
 	start_params.insert(start_params.end(), cp.begin(), cp.end());
 	std::string start_data = appsign(start_params, APP_KEY, APP_SECRET);
@@ -617,15 +679,67 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		return false;
 	}
 
-	rtmp_addr = json["data"]["rtmp"]["addr"].string_value();
-	rtmp_code = json["data"]["rtmp"]["code"].string_value();
-	if (rtmp_addr.empty() || rtmp_code.empty()) {
-		obs_log(LOG_ERROR, "无法解析 RTMP 地址或推流码");
-		message = "开播请求成功，但未获取到推流地址，请稍后重试";
+	// 第12步(续): risk_extra.v_voucher = geetest4 风控凭证(§2.5 同族)。
+	// 插件不内嵌 geetest;透出让用户经官方通道完成验证后重试。
+	const std::string voucher = json["data"]["risk_extra"]["v_voucher"].string_value();
+	if (!voucher.empty()) {
+		obs_log(LOG_WARNING, "开播命中风控, v_voucher=%s", voucher.c_str());
+		message = "命中服务端风控(需极验验证),凭证 " + voucher + ";请在浏览器登录直播页完成验证后重试";
 		return false;
 	}
 
-	//obs_log(LOG_INFO, "直播启动成功，RTMP 地址: %s, 推流码: %s", rtmp_addr.c_str(), rtmp_code.c_str());
+	// 步骤2: need_face_auth + qr(code==0 时同样可能要求人脸,阻断开播)。
+	if (json["data"]["need_face_auth"].bool_value()) {
+		face_qr = json["data"]["qr"].string_value();
+		obs_log(LOG_WARNING, "需要人脸认证(need_face_auth): %s", face_qr.c_str());
+		message = "需要人脸认证,请完成二维码验证后重新开播";
+		return false;
+	}
+
+	// 步骤3-6: 协议选择。默认协议字面量 "rtmp"(0x706d7472 实证)。
+	// protocols[] 非空 → 逐条 StreamTarget(protocol/addr/new_link/provider)与 live_key 配对;
+	// 否则旧式回落: rtmp.new_link 必须存在(缺→无效), addr 存在=有效。
+	const std::string live_key = json["data"]["live_key"].string_value();
+	// U1 观测: 记录响应给出的全部协议名(取值域钉死前的实网样本)。
+	{
+		std::string available;
+		for (const auto &t : json["data"]["protocols"].array_items())
+			available += (available.empty() ? "" : ",") + t["protocol"].string_value();
+		if (!available.empty())
+			obs_log(LOG_INFO, "startLive 可用协议: %s", available.c_str());
+	}
+	bool valid = false;
+	for (const auto &target : json["data"]["protocols"].array_items()) {
+		const std::string name = target["protocol"].string_value().empty() ? "rtmp"
+										  : target["protocol"].string_value();
+		if (name != "rtmp")
+			continue; // 多协议选择属 M1 后续;此处取默认 rtmp
+		rtmp_addr = target["addr"].string_value();
+		rtmp_code = live_key;
+		valid = !rtmp_addr.empty();
+		obs_log(LOG_INFO, "开播协议目标: protocol=rtmp provider=%s new_link=%s",
+			target["provider"].string_value().c_str(),
+			target["new_link"].bool_value() ? "1" : "0");
+		break;
+	}
+	if (!valid && rtmp_addr.empty()) {
+		const json11::Json rtmp = json["data"]["rtmp"];
+		if (rtmp.is_object() && !rtmp["new_link"].is_null()) { // 新式但无 protocols[]:key=code
+			rtmp_addr = rtmp["addr"].string_value();
+			rtmp_code = rtmp["code"].string_value();
+			valid = !rtmp_addr.empty() && !rtmp_code.empty();
+		}
+	}
+	if (!valid) {
+		// 官方第9步原文案(丢字段=响应契约破坏,把原文留在日志里以便补钉)。
+		obs_log(LOG_ERROR, "解析开播响应缺字段(missing fields!),原文: %s", response.data.c_str());
+		message = "开播响应缺少推流字段(missing fields),详见日志原文";
+		return false;
+	}
+
+	// 步骤10: 官方成功日志形态(addr/new_link/key),key 只记掩码。
+	obs_log(LOG_INFO, "开播成功: addr=%s key=%s", rtmp_addr.c_str(),
+		rtmp_code.empty() ? "(空)" : "****");
 	return true;
 }
 

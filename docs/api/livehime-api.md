@@ -328,7 +328,8 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/liveVersionInfo/getHomePage
 ```
 POST https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck
 ```
-参数经 `%s` 动态格式化注入, 字面值 **(未定)**;+sign。
+参数: **无业务参数**(builder F-1804c4c00 指令级:map=公共参数+csrf,直接签名;
+旧文「%s 动态格式化」是 URL 模板字样,非参数);+sign。
 
 ### 响应(PreLiveBizCheck 解析组)
 ```
@@ -336,7 +337,7 @@ data.game_promotion.{need_notice, biz_id, title, content, effect_button, no_effe
 ```
 → 合规弹窗/推广拦截。
 
-### 证据: builder F-1804c4c00;解析簇 E-10 @0x112cfad。仓库 ❌(C2)。
+### 证据: builder F-1804c4c00;解析簇 E-10 @0x112cfad。仓库 `preLiveCheck()`(开播前置阻断,C2 关闭)。
 
 ## 3.6 GetRoomPreLiveStatus
 
@@ -344,11 +345,13 @@ data.game_promotion.{need_notice, biz_id, title, content, effect_button, no_effe
 ```
 GET https://api.live.bilibili.com/xlive/app-blink/v1/index/GetRoomPreLiveStatus
 ```
-builder 无字符串字面量(参数经寄存器传入, 字面值 **(未定)**, 推测仅 `room_id`)。
+builder 无业务参数(指令级:仅公共 map 签名;旧推测「仅 room_id」不成立,按会话定位)。
 
-### 响应: 播前状态(字段未钉死)。
+### 响应
+解析器 F-180447550(`get-pre-live-status-result`)**只回读 `data.status`(int)**;
+取值域未钉死(仓库 `getRoomPreLiveStatus()` 透出原始值记日志观测)。
 
-### 证据: builder F-1804466d0。仓库 ❌。
+### 证据: builder F-1804466d0 + 派发解析回调 F-180447550。仓库 `getRoomPreLiveStatus()`。
 
 ## 3.7 prelive-info(播前房间资料, 含开播拦截)
 
@@ -405,10 +408,10 @@ Cookie: <会话>  client_traceid: <非空才带>
 |---|---|---|---|
 | `room_id` | 恒注 | 房间号 | ✅ `:365` |
 | `area_v2` | 恒注 | 二级分区 | ✅ `:367` |
-| `checked` | **恒注 `"0"`**(itoa(0) 指令实证) | `"0"` | ❌ |
-| `type` | 仅当本地配置 `custom-rtmp` 关(F-180141ed0 `FUN_180904490(cfg,"custom-rtmp")==0` 分支) | **(未定)** | ❌ |
-| `recommend_protocol` | 非空才注 | 合法值含 `"rtmp"`(§响应第3步默认值实证); 其余 U1 | ❌ |
-| `recommend_ip` | 非空才注 | §5.7 测速结果 | ❌ |
+| `checked` | **恒注 `"0"`**(itoa(0) 指令实证) | `"0"` | ✅ 恒注 |
+| `type` | 仅当本地配置 `custom-rtmp` 关(F-180141ed0 `FUN_180904490(cfg,"custom-rtmp")==0` 分支) | **`"1"+开播类型索引`**(`param_7+'1'` 指令实证;custom-rtmp 开时固定 `"1"`) | ✅ 恒注 `"1"`(默认配置+索引0) |
+| `recommend_protocol` | 非空才注 | 合法值含 `"rtmp"`(§响应第3步默认值实证); 其余 U1 | ✅ 隐藏配置透传 |
+| `recommend_ip` | 非空才注 | §5.7 测速结果 | ✅ 隐藏配置透传 |
 | `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
@@ -449,7 +452,9 @@ Cookie: <会话>  client_traceid: <非空才带>
 ### 证据
 - 构造: F-180141ed0、F-180146070(E-09 §1/§2 序列);`checked` itoa 链 F-180708c20→F-1806dc6e0;`type` 键 `DAT_181114fa6`;URL xref 0x180142cef/0x180146f42 E-03。
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
-- 仓库: 参数 `:365-374` ✅共有部分;响应只读 `data.rtmp.addr/code` `:421-425` ❌(notice/v_voucher 真缺陷, B4)。
+- 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
+  (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、
+  notice 阻断 B4①、v_voucher 透出)。**多路/xcode_stream 为明确不做项**(联播范围外)。
 
 ## 4.2 UpdatePreLiveInfo(播前改资料)
 
@@ -677,7 +682,6 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
-| — | `type` 参数值;PreCheck/GetRoomPreLiveStatus 参数字面 | §4.1/§3.5/§3.6 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |
 | — | get_stream_by_roomId 响应字段;R4 封面上传参数 | §7.1/§4.5 |
@@ -685,6 +689,8 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 已钉死(2026-11-25, Ghidra 定点反编译 M0cDump/Dump2/Dump3 + 公开端点实网):
 `device="pc"`(builder 内联 2 字节字面量)、公共参数注入器=FUN_180063f70(键集见 §1.1)、
 UpdatePreLiveInfo 注入条件(§4.2 管线例外)、`mobi_app="pc_link"`(builder 内联 7 字节字面量)、
-room/GetInfo 响应字段清单含 `data.room_id`(解析器 F-1802b3690,§3.3)。
+room/GetInfo 响应字段清单含 `data.room_id`(解析器 F-1802b3690,§3.3)、
+`type="1"+索引`(F-180141ed0 寄存器级)、PreCheck/GetRoomPreLiveStatus 均无业务参数
+(§3.5/§3.6,解析器 F-180447550 仅 `data.status`)。
 
 复现对应功能前必须先补对应 U 项(方法见 docs/roadmap.md)。
