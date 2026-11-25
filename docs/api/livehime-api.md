@@ -128,7 +128,7 @@ GET https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=<K
 
 ### 证据
 - 官方: H5 JS 内 86038/86090/86101 各 1 处、`2000` 4 处(E-06)。
-- 仓库: `bilibili_api.cpp:124-161`(同码集)✅;轮询 1000ms `ui/dialog_factory.cpp:134`、上限 180 次 `:101` ⚠️(频率差, A6)。
+- 仓库: `qrLogin()` 同码集 ✅;轮询实现 `src/ui/console.cpp`:**2s × 90 次(≈3 分钟)** ✅(与官方 H5 2000ms 一致,A6 已收口)。
 
 ## 2.3 crossDomain(换 Cookie)
 
@@ -143,7 +143,7 @@ GET <data.url> = https://passport.biligame.com/x/passport-login/web/crossDomain?
 
 ### 证据
 - 官方: E-06(crossDomain 链)、E-08 §1(Cookie.* 配置族)。
-- 仓库: 手动二次 GET 收 Set-Cookie `bilibili_api.cpp:163-197`(2026-08 新链适配注释)✅;Cookie 不回写 `http_client.cpp:31-45` ⚠️(A7)。
+- 仓库: 手动二次 GET 收 Set-Cookie `qrLogin()`(2026-08 新链适配)✅;持久键(SESSDATA/bili_jct/DedeUserID/buvid3/buvid4)已回写 config.json(`PERSIST_COOKIE_KEYS`)✅(A7 已收口)。
 
 ## 2.4 sso.list(跨域 SSO 传播)
 
@@ -158,7 +158,8 @@ GET https://passport.bilibili.com/x/passport-login/web/sso/list?csrf=<bili_jct>
 `Wy()` 取 `code==0` 后遍历 `data.sso` 逐 URL 发请求刷新对应域 Cookie)。
 
 ### 证据
-- 官方: E-06(H5 端点清单)+ E-06 JS 反混淆(`Wy`/`Yy` 函数体, `data.sso.map`)。仓库: ❌ 无(B3)。
+- 官方: E-06(H5 端点清单)+ E-06 JS 反混淆(`Wy`/`Yy` 函数体, `data.sso.map`)。
+  仓库: `propagateSso()` 已实现(csrf 透传 + 逐 URL follow)✅(B3 已收口)。
 
 ## 2.5 captcha(登录风控, geetest4)
 
@@ -236,7 +237,7 @@ GET https://api.bilibili.com/x/web-interface/nav?appkey=…&ts=…&sign=…
 
 ### 证据
 - 官方: F-1804c2200(builder: 无业务参数+sign+URL)。
-- 仓库: `bilibili_api.cpp:214-242` 消费同字段, 但 **不签名** ⚠️。
+- 仓库: `checkLoginStatus()` 消费同字段, **已按本 builder 带 appsign**(ts+appkey+sign)✅。
 
 ---
 
@@ -693,8 +694,8 @@ POST https://api.live.bilibili.com/room/v1/Room/stopLive
 |---|---|---|
 | `room_id` | **builder 唯一业务参数** | ✅ `:434` |
 | `csrf_token` `csrf` | 管线注入 | ✅ `:434-435` |
-| `ts` `appkey` `sign` | 管线 | ❌ 仓库不签名 |
-| — | 官方无 `platform` | ⚠️ 仓库多带 `platform=pc_link` |
+| `ts` `appkey` `sign` | 管线 | ✅ 仓库签名(room_id/csrf 对/ts 参与) |
+| — | 官方无 `platform`/`version`/`build` | ✅ 仓库不发 |
 
 ### 响应
 仅信封: parser F-180148980 只校验 `code/message`, 无 data 字段。

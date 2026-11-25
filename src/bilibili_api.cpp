@@ -588,11 +588,10 @@ json11::Json BiliApi::getActiveStream(const std::string &room_id, std::string &m
 {
 	if (!ensureVersionInfo(message))
 		return json11::Json();
-	std::vector<std::pair<std::string, std::string>> params = {{"room_id", room_id}};
-	auto cp = common_params();
-	params.insert(params.end(), cp.begin(), cp.end());
+	// 契约 §7.1(builder FUN_18014bf40):**业务参数仅 room_id + sign**,
+	// 不带 app-blink 公共参数组(该端点在 live_stream/v1,不走 §1 app-blink 注入器)。
 	std::string url = "https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId?" +
-			  appsign(params, APP_KEY, APP_SECRET);
+			  appsign({{"room_id", room_id}}, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
 		message = "get_stream_by_roomId 失败，状态码: " + std::to_string(response.status);
