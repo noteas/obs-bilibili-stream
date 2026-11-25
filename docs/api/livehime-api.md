@@ -441,6 +441,12 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
 
+**备流语义(用户澄清 2026-11-26)**:`backup_stream=1` 请求的是**第二条独立推流通道**
+(`protocols_backup[]`/`rtmp_backup`,自己的地址与推流码),与主流可同时推;
+主流失效时转发侧自动切到备流。**不是**同 key 的多个地址(同 key 二次连接会被拒)。
+U6 探针:`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空才注入,
+用于实测补钉)。
+
 ### 响应
 ```json
 {"code":0, "message":"0", "data": {
