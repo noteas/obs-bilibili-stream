@@ -21,7 +21,7 @@
 | M1 | `milestone/m1-startlive` | startLive 全参数集(checked="0"、type、recommend_protocol/ip、xcode_suffixes、条件注入)+ 响应 12 步全解析(live_key/protocols[]/protocols_backup/xcode_stream/notice/v_voucher/sub_session_key)+ 服务改写管线(rtmp_custom;SRT 映射就位)+ 协议下拉 + v_voucher 轻量链(浏览器验证页) | B4、C5(rtmp/srt) | 主体完成(2026-11-25:checked/type 钉死并注入、recommend_* 隐藏配置透传、响应第2-10步解析、PreCheck 阻断+播前状态观测、服务改写管线落地;xcode/多路=不做项;协议下拉待 U1 实网取值集,v_voucher 现为文案透出) |
 | M1b | `milestone/m1b-reconnect` | 启动即查(已登录才查)`live_status==1` → 控制台提示恢复;`GetUpStreamRtmp`→`ReconnectLiveInfo{can_change,urls,message}`;恢复=服务改写;「结束进行中场次」按钮(stopLive 清残留,二次确认) | C1 | 完成(2026-11-25:§7.1 解析器钉死,恢复链=get_stream_by_roomId 优先→GetUpStreamRtmp 备用;两段式确认结束场次;登录链 live_status 透出+启动即查已有;恢复形状待账号实测) |
 | M2 | `milestone/m2-quality` | **前置已完成(2026-11-25,U-Q 钉死,用户确认新模型)**:GetQualityData/QualityCallback=线路质量探测/回执(非档位);码率口径=GetUpStreamVideoQualityConfig(推荐/默认+干预,管线例外 bitrate_intervention=1 sign 后);H265 读 can_enable、AV1 读 can_hard_encode。范围:拉取展示推荐码率+干预+编码能力 → 用户设码率只写当前视频编码器 bitrate;无档位/无回执 | C4 | 完成(2026-11-25:三端点+控制台质量区落地,真机加载验证;干预/推荐值形状待账号实测) |
-| M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 存储 + 控制台备流行与「切到备流」 | — | 待开工 |
+| M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 存储 + 控制台备流行与「切到备流」 | — | 完成(2026-11-25:开播(含备流)→解析序第7步存储 protocols_backup→「切到备流」服务改写(切换式);backup_stream_type/stream_biz 值取证不可定位,按不猜值省略并留观测日志,待账号实测补钉) |
 
 ## 控制台字段清单(M0 验收口径,后续里程碑逐项激活)
 

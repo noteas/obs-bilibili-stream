@@ -696,7 +696,8 @@ bool BiliApi::canUseAv1Encoder(bool &can_hard_encode, std::string &message)
 }
 
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
-			std::string &face_qr, std::string &mid)
+			std::string &face_qr, std::string &mid, bool with_backup, std::string *backup_addr,
+			std::string *backup_code)
 {
 	if (config.room_id.empty() || config.csrf_token.empty()) {
 		obs_log(LOG_ERROR, "配置无效: room_id=%s, csrf_token=%s, title=%s", config.room_id.c_str(),
@@ -716,7 +717,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 									 {"area_v2", std::to_string(config.area_id)},
 									 {"checked", "0"},
 									 {"type", "1"},
-									 {"backup_stream", "0"}};
+									 {"backup_stream", with_backup ? "1" : "0"}};
 	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
 	if (!config.recommend_protocol.empty())
 		start_params.push_back({"recommend_protocol", config.recommend_protocol});
@@ -853,6 +854,27 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		obs_log(LOG_ERROR, "解析开播响应缺字段(missing fields!),原文: %s", response.data.c_str());
 		message = "开播响应缺少推流字段(missing fields),详见日志原文";
 		return false;
+	}
+
+	// 步骤7: protocols_backup[] 与 protocols[] 同构、与 live_key 配对(§4.1 解析序)。
+	// 备流语义=切换式(GLOSSARY):这里只存储,改写服务由控制台动作触发。
+	if (backup_addr && backup_code) {
+		for (const auto &target : json["data"]["protocols_backup"].array_items()) {
+			const std::string name = target["protocol"].string_value().empty()
+							   ? "rtmp"
+							   : target["protocol"].string_value();
+			if (name != "rtmp")
+				continue; // 备流多协议留待 U1
+			*backup_addr = target["addr"].string_value();
+			*backup_code = live_key;
+			obs_log(LOG_INFO, "备流目标: provider=%s new_link=%s",
+				target["provider"].string_value().c_str(),
+				target["new_link"].bool_value() ? "1" : "0");
+			break;
+		}
+		if (backup_addr->empty())
+			obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup rtmp 项(观测: %s)",
+				response.data.c_str());
 	}
 
 	// 步骤10: 官方成功日志形态(addr/new_link/key),key 只记掩码。

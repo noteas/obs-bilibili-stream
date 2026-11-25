@@ -415,8 +415,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
-| `backup_stream` | 备流 builder | `1` | 写死 `0` `:368` |
-| `backup_stream_type` `stream_biz` | 备流 builder | (未定) | ❌ |
+| `backup_stream` | 备流 builder | `1` | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
+| `backup_stream_type` `stream_biz` | 备流 builder | 工厂表调用方寄存器传入(`itoa(param)`/字符串),字面量不可定位(键全图仅 1 处引用=builder 内) | ⚠ 省略(不猜值);响应观测后补钉 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
 
@@ -454,7 +454,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
 - 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
   (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、
-  notice 阻断 B4①、v_voucher 透出)。**多路/xcode_stream 为明确不做项**(联播范围外)。
+  notice 阻断 B4①、v_voucher 透出);第7步 `protocols_backup[]` 与 live_key 配对存储,
+  「切到备流」经服务改写落地(M3,切换式)。**多路/xcode_stream 为明确不做项**(联播范围外)。
 
 ## 4.2 UpdatePreLiveInfo(播前改资料)
 
@@ -722,9 +723,11 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
+| U6 | 备流 `backup_stream_type`/`stream_biz` 取值(工厂表调用方寄存器,字面量不可定位;仓库省略待实网观测) | §4.1 |
+| U-QS | `GetQualityData` 的 `streamName`/`key` 取值构造 | §5.3 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |
-| — | get_stream_by_roomId 响应字段;R4 封面上传参数 | §7.1/§4.5 |
+| — | ~~get_stream_by_roomId 响应字段~~ 已钉死(§7.1);R4 封面上传参数 | §4.5 |
 
 已钉死(2026-11-25, Ghidra 定点反编译 M0cDump/Dump2/Dump3 + 公开端点实网):
 `device="pc"`(builder 内联 2 字节字面量)、公共参数注入器=FUN_180063f70(键集见 §1.1)、

@@ -37,11 +37,13 @@ enum Action : uintptr_t {
 	ACT_APPLY_TITLE,
 	ACT_APPLY_PARTITION,
 	ACT_START_LIVE,
+	ACT_START_LIVE_BACKUP,
 	ACT_STOP_LIVE,
 	ACT_RECOVER,
 	ACT_END_SESSION,
 	ACT_FETCH_QUALITY,
 	ACT_APPLY_BITRATE,
+	ACT_SWITCH_BACKUP,
 	ACT_OPEN_ROOM,
 };
 
@@ -446,9 +448,9 @@ void do_recover_stream()
 		}));
 }
 
-void do_start_live()
+void do_start_live(bool with_backup)
 {
-	if (!begin_action("开播"))
+	if (!begin_action(with_backup ? "开播(含备流)" : "开播"))
 		return;
 	auto config = g_config.config();
 	struct StartResult {
@@ -456,6 +458,8 @@ void do_start_live()
 		std::string message;
 		std::string addr;
 		std::string code;
+		std::string backupAddr;
+		std::string backupCode;
 		std::string faceQr;
 		std::string mid;
 	};
@@ -463,7 +467,7 @@ void do_start_live()
 	result->mid = config.mid;
 
 	Http::HttpClient::runAsync(
-		[config, result]() mutable {
+		[config, result, with_backup]() mutable {
 			// 开播前置(官方序): PreCheck 合规拦截(§3.5)→ 播前状态观测(§3.6,
 			// 取值域未钉死,仅记日志)→ startLive。legacy 下跳过 PreCheck
 			// (官方端点专属)。
@@ -479,8 +483,10 @@ void do_start_live()
 				else
 					obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
 			}
-			result->ok = Bili::BiliApi::startLive(config, result->addr, result->code, result->message,
-							     result->faceQr, result->mid);
+			result->ok = Bili::BiliApi::startLive(
+				config, result->addr, result->code, result->message, result->faceQr, result->mid,
+				with_backup, with_backup ? &result->backupAddr : nullptr,
+				with_backup ? &result->backupCode : nullptr);
 		},
 		guarded([result]() {
 			end_action();
@@ -489,11 +495,18 @@ void do_start_live()
 				cfg.streaming = true;
 				cfg.rtmp_addr = result->addr;
 				cfg.rtmp_code = result->code;
+				if (!result->backupAddr.empty()) {
+					cfg.rtmp_backup_addr = result->backupAddr;
+					cfg.rtmp_backup_code = result->backupCode;
+				}
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
 				g_config.save();
 				set_streaming_service(result->addr, result->code);
-				g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code;
+				g_stream_info = "推流地址: " + result->addr + "\n推流码: " + result->code +
+						(result->backupAddr.empty()
+							 ? ""
+							 : "\n备流地址: " + result->backupAddr + "(可\"切到备流\")");
 				set_status(LEVEL_INFO, "开播成功,推流地址已写入 OBS 服务,点击 OBS\"开始直播\"推流");
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
@@ -509,6 +522,20 @@ void do_start_live()
 				set_status(LEVEL_ERROR, "开播失败: " + result->message);
 			}
 		}));
+}
+
+// M3 备流切换(GLOSSARY 语义=切换式,不是双推):把 OBS 服务配置改写为已存备流
+// 地址;OBS 侧停止/重新开始推流由用户操作。纯本地动作,无网络调用。
+void do_switch_backup()
+{
+	auto &cfg = g_config.config();
+	if (cfg.rtmp_backup_addr.empty() || cfg.rtmp_backup_code.empty()) {
+		set_status(LEVEL_WARNING, "尚无备流地址(用\"开播(含备流)\"获取)");
+		return;
+	}
+	set_streaming_service(cfg.rtmp_backup_addr, cfg.rtmp_backup_code);
+	g_stream_info = "推流地址(已切备流): " + cfg.rtmp_backup_addr + "\n推流码: " + cfg.rtmp_backup_code;
+	set_status(LEVEL_WARNING, "服务已切到备流地址——请在 OBS 停止后重新开始直播");
 }
 
 void do_stop_live()
@@ -528,6 +555,9 @@ void do_stop_live()
 			if (result->ok) {
 				g_config.config().streaming = false;
 				g_session_in_progress = false; // 服务端已停播,恢复入口关闭
+				// 场次结束,备流地址随场次作废(密钥每场新生成)。
+				g_config.config().rtmp_backup_addr.clear();
+				g_config.config().rtmp_backup_code.clear();
 				g_stream_info.clear();
 				g_config.save();
 				set_status(LEVEL_INFO, "已停播");
@@ -768,7 +798,10 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		do_apply_partition();
 		break;
 	case ACT_START_LIVE:
-		do_start_live();
+		do_start_live(false);
+		break;
+	case ACT_START_LIVE_BACKUP:
+		do_start_live(true);
 		break;
 	case ACT_STOP_LIVE:
 		do_stop_live();
@@ -793,6 +826,9 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		break;
 	case ACT_APPLY_BITRATE:
 		do_apply_bitrate();
+		break;
+	case ACT_SWITCH_BACKUP:
+		do_switch_backup();
 		break;
 	case ACT_OPEN_ROOM:
 		open_live_room();
@@ -930,7 +966,12 @@ obs_properties_t *console_properties(void *data)
 	// --- 开播/停播 ---
 	add_action_button(props, "btn_start_live", "开播", ACT_START_LIVE,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
+	add_action_button(props, "btn_start_live_backup", "开播(含备流)", ACT_START_LIVE_BACKUP,
+			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
 	add_action_button(props, "btn_stop_live", "停播", ACT_STOP_LIVE, !g_busy && cfg.streaming);
+	// M3 备流:切换式(改服务配置,用户重推),有存量备流才可用。
+	add_action_button(props, "btn_switch_backup", "切到备流", ACT_SWITCH_BACKUP,
+			  !g_busy && !cfg.rtmp_backup_addr.empty());
 	// M1b: 仅"服务端在播而本地未推流"时可用(恢复=找回地址写回服务,不碰推流按钮)。
 	add_action_button(props, "btn_recover", "恢复推流", ACT_RECOVER,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming &&

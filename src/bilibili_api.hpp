@@ -29,6 +29,9 @@ struct Config {
 	// 上游选点透传(§5.7):非空才随 startLive 注入;插件不做测速本身。
 	std::string recommend_protocol;
 	std::string recommend_ip;
+	// 备流(M3):开播响应 protocols_backup 回填;「切到备流」=服务改写为备流地址。
+	std::string rtmp_backup_addr;
+	std::string rtmp_backup_code;
 };
 
 // Endpoints never carry identity arguments: cookies, UA and client_traceid are
@@ -50,8 +53,13 @@ public:
 	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
 				     bool prefer_official = true);
 	static json11::Json getPartitionList(std::string &message);
+	// with_backup=true 走官方备流构造(F-180146070 参数位): backup_stream=1。
+	// 官方恒注的 backup_stream_type/stream_biz 取值未钉死(经工厂表由调用方传入,
+	// 字面量不在二进制定位)——此处省略并在响应观测后补钉,不猜值。
+	// backup_addr/code 非空则回填 data.protocols_backup[](解析序第7步)。
 	static bool startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
-			      std::string &face_qr, std::string &mid);
+			      std::string &face_qr, std::string &mid, bool with_backup = false,
+			      std::string *backup_addr = nullptr, std::string *backup_code = nullptr);
 	static bool stopLive(const Config &config, std::string &message);
 	static bool updateRoomInfo(const Config &config, std::string &message, const std::string &title = "",
 				   int areaId = -1);

@@ -40,6 +40,8 @@ void ConfigManager::load()
 	m_config.recommend_protocol = obs_data_get_string(settings, "recommend_protocol");
 	m_config.recommend_ip = obs_data_get_string(settings, "recommend_ip");
 	m_config.bitrate_kbps = static_cast<int>(obs_data_get_int(settings, "bitrate_kbps"));
+	m_config.rtmp_backup_addr = obs_data_get_string(settings, "rtmp_backup_addr");
+	m_config.rtmp_backup_code = obs_data_get_string(settings, "rtmp_backup_code");
 	obs_data_release(settings);
 	bfree(configFile);
 
@@ -71,6 +73,8 @@ void ConfigManager::save()
 	obs_data_set_string(settings, "recommend_protocol", m_config.recommend_protocol.c_str());
 	obs_data_set_string(settings, "recommend_ip", m_config.recommend_ip.c_str());
 	obs_data_set_int(settings, "bitrate_kbps", m_config.bitrate_kbps);
+	obs_data_set_string(settings, "rtmp_backup_addr", m_config.rtmp_backup_addr.c_str());
+	obs_data_set_string(settings, "rtmp_backup_code", m_config.rtmp_backup_code.c_str());
 	std::error_code ec;
 	try {
 		auto configPath = std::filesystem::u8path(configFile);
