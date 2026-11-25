@@ -41,7 +41,7 @@
 | U | 内容 | 卡哪个里程碑 |
 |---|---|---|
 | U1 | `protocols[].protocol` 除 rtmp 外的取值集(`type` 已钉死=`"1"`+类型索引) | M1 协议下拉(解析已按"未知协议忽略"放行并记观测日志) |
-| U-Q | `GetQualityData`/`QualityCallback` 请求响应字段 | M2 |
+| U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2(范围需按新模型重定,待用户确认) |
 | U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
 

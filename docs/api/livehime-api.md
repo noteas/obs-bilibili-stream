@@ -549,31 +549,62 @@ data.sei_interval, sei_interval_switch
 
 ## 5.3 GetQualityData / QualityCallback
 
-### 请求: `live/GetQualityData`(拉质量档)→ 选档后 `live/QualityCallback` 回执。
+**语义修正(2026-11-25 解析器钉死)**:本对端点是**上行线路质量探测与回执**
+(RTTI `StreamQualityData`、日志 tag `get-stream-quality-data`),与视频码率档位**无关**;
+§5.7 的响应形状实为本端点同族。原「质量档列表」推测不成立。
 
-### 响应: 质量档列表(字段未钉死)。
+### 请求 GetQualityData
+```
+GET live/GetQualityData → 参数 = 公共 + streamName + key,sign 覆盖全部(标准管线)。
+```
+`streamName`/`key` 值语义 = 客户端会话内部值(U-qs,取值构造未钉死)。
 
-### 证据: URL+流程 E-02 §9。仓库 ❌(C4)。
+### 响应(解析器 F-18019cf50)
+```
+data.{fpsResult, reason, recommendAddr,
+      scheduleInfo.{edge, mode, protocol},
+      openInfo|serverInfo|userInfo.{ip, country, province, city, isp}}
+```
 
-## 5.4 GetUpStreamVideoQualityConfig
+### 请求 QualityCallback
+参数 = 公共 + `streamName` + `addrChanged`("true"/"f") + `reason` + `time` +
+`recommendAddr` + `autoReport`("true"/"f") + `extensions`,sign 覆盖全部。
+解析器 F-18019f6a0 不回读任何字段(只认 code)。
 
-### 响应
+### 证据: builder F-18019bc00/F-18019e150(URL 字面量 findBytes+xref);解析器上列。仓库 ❌。
+
+## 5.4 GetUpStreamVideoQualityConfig ★视频码率的正解来源
+
+### 请求
+```
+GET upStreamConfig/GetUpStreamVideoQualityConfig
+```
+参数 = 公共 + sign(sign 只覆盖公共参数),`bitrate_intervention="1"` 在 **sign 之后**注入
+(F-1802d40f0 指令级:4b3d60 计算 sign → 回写 map → 再插 bitrate_intervention)。
+管线例外同 §4.2 UpdatePreLiveInfo。
+
+### 响应(解析器 F-1802d5060 `ParseStreamVideoQualityConfigResponse`)
 ```
 recommend_bitrate, strategy_source,
-data.bitrate_config.default_bitrate,
-data.bitrate_config.recommend_bitrate_member_intervention
+data.bitrate_config.{default_bitrate,
+                     recommend_bitrate_area_intervention,
+                     recommend_bitrate_member_intervention},
+recommend_bitrate_area_v2_interventions[].area_v2_ids
 ```
+**无档位枚举列表**——官方口径是「推荐/默认码率 + 分区/会员干预」,用户端只做码率数值,不做选档。
 
-### 证据: 解析器名 `ParseStreamVideoQualityConfigResponse` 簇 E-10 @0x112d3e4。仓库 ❌。
+### 证据: builder F-1802d40f0;解析器 F-1802d5060。仓库 ❌(C4 重新定义,见 roadmap M2)。
 
 ## 5.5 CanUseH265Encoder / CanUseAV1Encoder
 
-### 响应
-```
-data.{can_enable, can_hard_encode, md5, sign}
-```
+### 请求
+GET,无业务参数(纯公共+sign;builder F-1802d04b0/F-1802d0b20 无参数插桩)。
 
-### 证据: `ParseCanUseHEVCEncodeResponse` 簇 E-10 @0x112d2f7。仓库 ❌。
+### 响应(解析器逐一定死,旧清单 {can_enable,can_hard_encode,md5,sign} 有误)
+- H265(F-1802d08c0 `ParseCanUseHEVCEncodeResponse`):只回读 `data.can_enable`。
+- AV1(F-1802d0f30 `ParseCanUseAV1EncoderResponse`):只回读 `data.can_hard_encode`。
+
+### 证据: URL findBytes+xref,builder/解析器如列。仓库 ❌。
 
 ## 5.6 GetClientXCodeAbility / 时移
 
