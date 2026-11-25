@@ -1,42 +1,51 @@
 #include "core/qr_generator.hpp"
 #include "qrcodegen/qrcodegen.hpp"
-#include <QImage>
-#include <QPainter>
+#include <fstream>
+#include <sstream>
 
 namespace Core {
-QPixmap QrGenerator::generate(const std::string &data)
-{
-	return generate(QString::fromStdString(data));
-}
 
-QPixmap QrGenerator::generate(const QString &data)
+bool QrGenerator::writeSvgFile(const std::string &path, const std::string &data)
 {
-	if (data.isEmpty()) {
-		return QPixmap();
-	}
+	if (data.empty())
+		return false;
 
 	using qrcodegen::QrCode;
-	const QrCode qr = QrCode::encodeText(data.toUtf8().constData(), QrCode::Ecc::LOW);
-	if (qr.getSize() <= 0) {
-		return QPixmap();
-	}
+	std::string svg;
+	try {
+		const QrCode qr = QrCode::encodeText(data.c_str(), QrCode::Ecc::LOW);
+		if (qr.getSize() <= 0)
+			return false;
 
-	const int scale = 10;
-	const int border = 4;
-	const int size = qr.getSize();
-	QImage image((size + border * 2) * scale, (size + border * 2) * scale, QImage::Format_RGB32);
-	image.fill(Qt::white);
-	QPainter painter(&image);
-	painter.setPen(Qt::NoPen);
-	painter.setBrush(Qt::black);
+		const int scale = 8;
+		const int border = 4;
+		const int size = qr.getSize();
+		const int full = (size + border * 2) * scale;
 
-	for (int y = 0; y < size; ++y) {
-		for (int x = 0; x < size; ++x) {
-			if (qr.getModule(x, y)) {
-				painter.drawRect((x + border) * scale, (y + border) * scale, scale, scale);
+		std::ostringstream out;
+		out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << full << "\" height=\"" << full
+		    << "\" viewBox=\"0 0 " << full << " " << full << "\">\n"
+		    << "<rect width=\"" << full << "\" height=\"" << full << "\" fill=\"#ffffff\"/>\n"
+		    << "<path fill=\"#000000\" d=\"";
+		for (int y = 0; y < size; ++y) {
+			for (int x = 0; x < size; ++x) {
+				if (qr.getModule(x, y)) {
+					out << "M" << (x + border) * scale << " " << (y + border) * scale << "h" << scale
+					    << "v" << scale << "h-" << scale << "z";
+				}
 			}
 		}
+		out << "\"/>\n</svg>\n";
+		svg = out.str();
+	} catch (const std::exception &) {
+		return false;
 	}
-	return QPixmap::fromImage(image);
+
+	std::ofstream file(path, std::ios::binary | std::ios::trunc);
+	if (!file.is_open())
+		return false;
+	file << svg;
+	return file.good();
 }
+
 } // namespace Core

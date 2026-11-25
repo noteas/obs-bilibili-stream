@@ -15,7 +15,7 @@
 
 | # | 分支 | 内容 | 修缺口 | 状态 |
 |---|---|---|---|---|
-| M0 | `milestone/m0-qt-free` | UI 迁移到控制台(字段清单见下),删 Qt/moc/`ENABLE_QT`;所有后续里程碑的可编译前提 | ADR-0003 | 待开工 |
+| M0 | `milestone/m0-qt-free` | UI 迁移到控制台(字段清单见下),删 Qt/moc/`ENABLE_QT`;所有后续里程碑的可编译前提 | ADR-0003 | 完成(2026-11-25,OBS 32.2 真机加载/卸载验证) |
 | M0b | `milestone/m0b-fingerprint` | 原生 UA、去 Origin/Referer 与 charset、buvid3 获取+持久化+全携带、client_traceid、轮询 2s、cookie jar 轮转回写、nav/stopLive 补 appsign、notice 以 ERROR 状态行透出 | A1-A7、B4① | 待开工 |
 | M0c | `milestone/m0c-endpoints` | `getInfoByUser`/app-blink `room/GetInfo` 替代 `room_id_by_uid`;`UpdatePreLiveInfo`/`AnchorChangeRoomArea` 替代 `Room/update`;SSO 跨域传播;隐藏配置 `use_legacy_endpoints` 回退开关(默认关) | B1、B2、B3 | 待开工 |
 | M1 | `milestone/m1-startlive` | startLive 全参数集(checked="0"、type、recommend_protocol/ip、xcode_suffixes、条件注入)+ 响应 12 步全解析(live_key/protocols[]/protocols_backup/xcode_stream/notice/v_voucher/sub_session_key)+ 服务改写管线(rtmp_custom;SRT 映射就位)+ 协议下拉 + v_voucher 轻量链(浏览器验证页) | B4、C5(rtmp/srt) | 待开工 |

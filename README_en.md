@@ -88,28 +88,29 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 
 ## Usage
 
-1. **Login to Bilibili**:
-    - Open OBS Studio, go to menu **Bilibili直播** → **登录** (Login).
-    - Select **扫码登录** (QR Code Login) and scan with your Bilibili mobile app.
-    - After successful login, the "登录状态" (Login Status) will show "已登录" (Logged in).
+> Since v2.2 all controls live in the **「B站直播控制台」** (Bilibili Stream Console) window, rendered natively by OBS (ADR-0003). The plugin no longer depends on Qt.
 
-2. **Update Livestream Room Info**:
-    - Go to **Bilibili直播** → **更新直播间信息** (Update Room Info).
-    - Enter room title, select category and subcategory (e.g., "网游" → "英雄联盟").
-    - Click "确认" (Confirm) to save settings.
+1. **Open the console**: Start OBS, then go to menu **Tools → B站直播控制台**.
 
-3. **Start Streaming**:
-    - Go to **Bilibili直播** → **开始直播** (Start Streaming).
-    - Copy the **RTMP Address** and **Stream Key** from the popup dialog.
-    - In OBS, go to **Settings** → **Output** → **Stream**, set:
-        - Service: Custom
-        - Server: Paste RTMP address (e.g., `rtmp://live-push.bilivideo.com/live-bvc/`)
-        - Stream Key: Paste stream key (e.g., `?streamname=...`)
-    - Click **开始直播** (Start Streaming) in OBS.
+2. **Login to Bilibili**:
+    - Click **扫码登录** (QR login) in the console; the login QR code opens in your system browser (if no browser can be launched, the status line shows the URL to open manually).
+    - Scan with the Bilibili mobile app and confirm; the console status line updates to "已登录" (logged in) automatically.
+    - You can also use **Tools → B站扫码登录** directly, without opening the console first.
 
-4. **End Streaming**:
-    - Click **停止直播** (Stop Streaming) in OBS.
-    - Go to **Bilibili直播** → **停止直播** to close the Bilibili livestream room.
+3. **Update Livestream Room Info**:
+    - In the console, fill in the room title and pick the category / subcategory (the list loads automatically after login).
+    - Click **应用标题** (Apply title) / **应用分区** (Apply category) to submit.
+
+4. **Start live (open the Bilibili live session)**:
+    - Click **开播** (Go live) in the console; the push URL and stream key appear in the console status area.
+    - In OBS, go to **Settings** → **Stream**, set:
+        - Service: **Custom**
+        - Server: paste the push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
+    - Click **Start Streaming** in OBS. The plugin only handles the go-live signalling; starting the actual stream is always your call in OBS (ADR-0001).
+
+5. **Stop**:
+    - Stop streaming in OBS first, then click **停播** (End live) in the console to close the Bilibili live room.
+    - **打开直播间** (Open live room), from the menu or the console, opens your live page in the browser.
 
 ## Troubleshooting
 
