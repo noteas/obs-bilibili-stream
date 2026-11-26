@@ -156,21 +156,11 @@ ${_usage_host:-}"
   popd
 
   if (( package )) {
-    log_group "Packaging ${product_name}..."
-    pushd ${project_root}
-    sudo cmake --build build_${target%%-*} --config ${config} -t package ${cmake_args} -v
-    cd release
-    pwd
-    ls
-    for file in $(ls); do
-          if [[ ${file} == *.deb || ${file} == *.ddeb ]]; then
-            new_name=${file//${CPUTYPE}-linux-gnu/${target}}
-            log_info "Renaming ${file} to ${new_name}"
-            sudo mv ${file} ${new_name}
-          fi
-    done
-    cd ..
-    popd
+    # deb/ddeb 已取消(2026-11-27 用户决定):二进制发行物 = 用户插件目录 zip,
+    # 由 CI 步骤「Package Plugin Directory Zip」直接构建,不再走 CPack 二进制
+    # 生成器;此处只归还 package_source 建出的 release/ 属权。
+    log_info "Binary packaging is zip-only (CI Package Plugin Directory Zip); skipping CPack generators."
+    sudo chown -R "$(id -u):$(id -g)" ${project_root}/release
   } else {
     log_group "Archiving ${product_name}..."
     local output_name="${product_name}-${product_version}-${target}-ubuntu-gnu"

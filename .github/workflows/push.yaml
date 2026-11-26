@@ -73,8 +73,8 @@ jobs:
 
           variants=(
             'windows-x64;zip|exe'
-            'ubuntu-24.04-x86_64;tar.xz|deb|ddeb|zip'
-            'ubuntu-26.04-x86_64;tar.xz|deb|ddeb|zip'
+            'ubuntu-24.04-x86_64;zip'
+            'ubuntu-26.04-x86_64;zip'
             'flatpak-x86_64;flatpak'
             'sources;tar.xz'
           )
@@ -103,7 +103,5 @@ jobs:
           files: |
             ${{ github.workspace }}/*.exe
             ${{ github.workspace }}/*.zip
-            ${{ github.workspace }}/*.deb
-            ${{ github.workspace }}/*.ddeb
             ${{ github.workspace }}/*.flatpak
             ${{ github.workspace }}/*.tar.xz
