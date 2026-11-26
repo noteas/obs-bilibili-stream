@@ -70,13 +70,16 @@ invoke_formatter() {
         local -a command=(${formatter} ${format_args})
 
         for file (${source_files}) {
-            diff_output=$(${command} "${file}" | diff -u "${file}" - 2>&1)
-            log_error "${diff_output}}"
-            if ! ${command} "${file}" | diff -q "${file}" - &> /dev/null; then
+          # NOTE: `diff -u` exits 1 when the file IS dirty; a bare assignment kills this
+          # script silently under setopt ERR_EXIT (CI silent exit 1, 2026-11-26 post-mortem).
+          # Guard with `|| true` and use non-empty diff output as the dirty signal.
+          diff_output=$(${command} "${file}" 2>/dev/null | diff -u "${file}" - 2>&1 || true)
+          if (( ${#diff_output} )) {
             log_error "${file} requires formatting changes."
-            if (( fail_on_error == 2 )) return 2;
+            log_error "${diff_output}"
+            if (( fail_on_error == 2 )) return 2
             num_failures=$(( num_failures + 1 ))
-          fi
+          }
         }
         if (( num_failures && fail_on_error == 1 )) return 2
       }
