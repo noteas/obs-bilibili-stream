@@ -69,8 +69,11 @@ public:
 	// is the new persistent_cookie_header(). Handlers must not re-enter the jar.
 	static void set_cookie_change_callback(std::function<void(const std::string &)> cb);
 
-	// Session UUID (client_traceid header), generated once per plugin load.
+	// Session traceid sent as the client_traceid header. Empty by default
+	// (E-21: official omits the header when no session traceid; plugin no longer
+	// fabricates one). Set once from config at plugin load, before any request.
 	static const std::string &traceid();
+	static void set_traceid(const std::string &traceid);
 	// The fixed LiveHime UA string (contract §1.1 / E-02 §5).
 	static const char *user_agent();
 };

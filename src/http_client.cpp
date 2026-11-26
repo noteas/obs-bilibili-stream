@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <random>
 #include <sstream>
 #include "plugin_utils.hpp"
 #include "util/base.h"
@@ -35,28 +34,9 @@ static const char *const LIVEHIME_UA =
 // in-memory only.
 static const char *const PERSIST_COOKIE_KEYS[] = {"SESSDATA", "bili_jct", "DedeUserID", "buvid3", "buvid4"};
 
-static std::string make_uuid_v4()
-{
-	std::random_device rd;
-	std::mt19937_64 gen((static_cast<uint64_t>(rd()) << 32) ^ rd());
-	std::uniform_int_distribution<uint32_t> dist(0, 15);
-	const char *hex = "0123456789abcdef";
-	std::string uuid;
-	uuid.reserve(36);
-	for (int i = 0; i < 36; ++i) {
-		if (i == 8 || i == 13 || i == 18 || i == 23) {
-			uuid += '-';
-			continue;
-		}
-		int nibble = dist(gen);
-		if (i == 14)
-			nibble = 4; // version 4 (3rd group starts after two dashes)
-		else if (i == 19)
-			nibble = (nibble & 0x3) | 0x8; // RFC 4122 variant
-		uuid += hex[nibble];
-	}
-	return uuid;
-}
+// client_traceid 不再自造:E-21 证实官方仅在会话 traceid 非空时才发该头,插件
+// 无服务端来源即应缺省不发(此前自造随机 UUID 属虚构数据,见 E-21)。值改由
+// 配置(client_traceid_probe)经 set_traceid() 注入。
 
 // ---------------------------------------------------------------------------
 // cookie jar + identity state (mutex-guarded: mutated on the worker thread by
@@ -202,6 +182,14 @@ void HttpClient::set_cookie_change_callback(std::function<void(const std::string
 const std::string &HttpClient::traceid()
 {
 	return g_traceid;
+}
+
+void HttpClient::set_traceid(const std::string &traceid)
+{
+	// Called once at plugin load (config), before any request fires on the worker
+	// thread; matches the lock-free traceid() accessor's initialization contract.
+	std::lock_guard<std::mutex> lock(jar_mutex);
+	g_traceid = traceid;
 }
 
 const char *HttpClient::user_agent()
@@ -356,7 +344,6 @@ void HttpClient::init()
 {
 	if (worker_thread.joinable())
 		return;
-	g_traceid = make_uuid_v4();
 	curl_global_init(CURL_GLOBAL_ALL);
 	stop_worker = false;
 	worker_thread = std::thread(workerLoop);

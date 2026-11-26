@@ -46,6 +46,7 @@ void ConfigManager::load()
 	m_config.rtmp_backup_code = obs_data_get_string(settings, "rtmp_backup_code");
 	m_config.backup_stream_type_probe = obs_data_get_string(settings, "backup_stream_type_probe");
 	m_config.stream_biz_probe = obs_data_get_string(settings, "stream_biz_probe");
+	m_config.client_traceid_probe = obs_data_get_string(settings, "client_traceid_probe");
 	m_config.access_key = obs_data_get_string(settings, "access_key");
 	m_config.refresh_token = obs_data_get_string(settings, "refresh_token");
 	// 线路表(ADR-0005):JSON 数组持久化,便于停播后仍可抄地址。
@@ -100,6 +101,7 @@ void ConfigManager::save()
 	obs_data_set_string(settings, "backup_stream_type_probe",
 			    m_config.backup_stream_type_probe.c_str());
 	obs_data_set_string(settings, "stream_biz_probe", m_config.stream_biz_probe.c_str());
+	obs_data_set_string(settings, "client_traceid_probe", m_config.client_traceid_probe.c_str());
 	obs_data_set_string(settings, "access_key", m_config.access_key.c_str());
 	obs_data_set_string(settings, "refresh_token", m_config.refresh_token.c_str());
 	{

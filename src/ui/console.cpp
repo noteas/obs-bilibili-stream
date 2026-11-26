@@ -1016,6 +1016,9 @@ void ConsoleCreate()
 	g_config.load();
 	// App OAuth 身份随公共参数发送(官方 FUN_180063f70 恒注 access_key)。
 	Bili::BiliApi::setAccessKey(g_config.config().access_key);
+	// client_traceid 请求头:官方仅在会话 traceid 非空时才发(E-21);插件默认不
+	// 自造,值(若要用)由隐藏配置 client_traceid_probe 注入。
+	Http::HttpClient::set_traceid(g_config.config().client_traceid_probe);
 	g_draft_title = g_config.config().title;
 	g_draft_part = g_config.config().part_id;
 	g_draft_area = g_config.config().area_id;

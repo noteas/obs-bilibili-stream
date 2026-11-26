@@ -44,6 +44,10 @@ struct Config {
 	// builder 默认恒注官方值;探针非空时覆盖,保留作实网复核通道。
 	std::string backup_stream_type_probe;
 	std::string stream_biz_probe;
+	// client_traceid 请求头的值(隐藏配置)。官方注入条件=会话 traceid 非空
+	// (F-180146070 `param_10` 判空,E-21);插件此前自造随机 UUID 属虚构数据,
+	// 已改为**默认不发送**。非空时按其值发送,作 70002 实网探针(如 32-hex 形态)。
+	std::string client_traceid_probe;
 	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)
 	std::string rtmp_backup_code;
 	// App OAuth 身份(官方公共参数注入器 FUN_180063f70 每次 app-blink 请求都带
