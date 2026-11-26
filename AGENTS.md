@@ -23,6 +23,14 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 你可以用本机的其他工具，但不要安装工具，除非必须。在这种情况下，你需要暂停，由我自己安装。
 
+### Ghidra 使用准则（2026-11-26 确立，详见 `re/GHIDRA-NOTES.md`）
+
+- **废弃旧打法**：不要再「复用旧工程 + `-noanalysis` + 定向 DumpVAs」一条路走到黑——它跳过整个分析管线，产物里全是 `UNK_*`、`FUN_xxx`、`undefined8`，字符串/RTTI/vftable/参数全没建出来。
+- **新目标第一件事 = 完整分析**：建全新工程 `-import`（默认开全部分析器），用 `-analysisTimeoutPerFile` 与 `-max-cpu` 兜底；70MB 级一次约 20~40 分钟。
+- **全分析之后用官方增值脚本**：`RecoverClassesFromRTTIScript.java`（RTTI→类/方法名，能把 `FUN_180d5c120` 变成 `LivehimeLiveRoomController::OpenLiveRoom`）、Decompiler Parameter ID、`StringParameterPropagator.java` 等；DumpVAs 只作增量抽查。
+- **无 PDB**：三条主 PE 的 Debug Directory size=0，无 RSDS/`.pdb` 路径；符号恢复只能靠 RTTI + 字符串 + 全分析，别浪费时间找 PDB。
+- **RTTI 即证据**：`.?AV<lambda_N>@?0??Method@Class@@...@Z@` 直接给出真实 C++ 方法签名，遇到先 strings 全量扫一遍。
+
 ## 行为准则
 
 - 文档优先：Ghidra, OBS等第三方软件的使用方法/API以最新官方文档为准，你可以在线检索，不只凭记忆；Bilibili（B站）文档除外，不要参考官方文档，只以逆向结论为准，因为官方不公开。
