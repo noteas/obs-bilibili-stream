@@ -125,7 +125,9 @@ jobs:
           : Expose Raw Binary so
           src="$(find build_x86_64 -name 'bilibili-stream-for-obs.so' -print -quit)"
           if [ -n "$src" ]; then
-            cp -f "$src" "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64.so"
+            dst="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64.so"
+            sudo cp -f "$src" "$dst"
+            sudo chown "$(id -u):$(id -g)" "$dst"
             echo "raw binary: $src"
           else
             echo "::warning::raw .so not found"
