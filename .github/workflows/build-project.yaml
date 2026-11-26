@@ -174,12 +174,18 @@ jobs:
     name: Build Flatpak Plugin 📦
     runs-on: ubuntu-24.04
     needs: check-event
-    # Flatpak 构建在 CI overlayfs 上易触发 ostree "Invalid cross-device link";
     # 失败不应阻塞其他平台产物与 Release。
     continue-on-error: true
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
-      options: --privileged
+      # tmpfs 隔离 ostree 仓库:GH Runner 的容器根是 overlayfs,ostree 对镜像内
+      # 既有 runtime 做「更新合并」时 renameat2(RENAME_WHITEOUT) 在 overlay 上
+      # 报 EXDEV(Invalid cross-device link),flatpak-builder 依赖更新阶段随机
+      # 失败(2026-11-26 复盘:同 workflow 同 image digest,当日 5 次运行成败交替;
+      # 新 ref 的全新 pull 不触发,仅合并更新触发)。tmpfs 完整支持 rename 语义,
+      # /var/lib/flatpak 挂 tmpfs 后所有 ostree 写离开 overlayfs ⇒ 故障路径消失。
+      # 代价 = 每次全新拉取 runtime(镜像预置被遮,数分钟)。
+      options: --privileged --tmpfs /var/lib/flatpak:size=8g
     defaults:
       run:
         shell: bash
