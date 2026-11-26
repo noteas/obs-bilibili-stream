@@ -422,7 +422,7 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 ### 响应(`data`, parser F-18044d410 钉死)
 `visible_mode` / `guard_visible_type` / **`upower_privilege_type`**。开播分派器(bililive.dll F-180d5de60)按 `upower_privilege_type` switch:**==5(日志字面 "PRELIVE_UPOWER")⇒ 备流 builder(§4.1 备流三参+src)**;0/2/3/0xffffffff ⇒ 标准 builder(不带备流参)。同族 paylive 权益端点(RTTI `.?AVLiveGuardExclusiveService@secret@@` + URL 明文):`general-interface/v1/paylive/preparePaylive`(POST JSON `{"type":N,"upower_opt":{"upower_privilege_type":M}}`,builder F-18044a950,`upower_opt` 仅 type==2 注)、`prepareGuardPaylive`、`queryPayliveStatus`、`getPayliveInfoForAnchor`、`GetCanEncryptRoomInfo`——**备流伴参与 Paylive 业务同属直播权益子系统**;单例开关值同被注入 H5 URL `&upower_privilege_type=`(F-180643940,同串 `&device=PCLINK#/pclink`)。
 
-### 证据: E-22(F-180d5de60 分派 switch + 回调单例 `*+0` + parser F-18044d410 + RTTI 端点族)。仓库 `getVisibleMode()` ✅(开播(含备流)资格门);preparePaylive 族未实施 ❌(仅 ==5 且备流分配仍失败时再追)。
+### 证据: E-22(F-180d5de60 分派 switch + 回调单例 `*+0` + parser F-18044d410 + RTTI 端点族)。仓库 `getVisibleMode()` ✅(单「开播」按钮自动分派的资格门);preparePaylive 族未实施 ❌(仅 ==5 且备流分配仍失败时再追)。
 
 ---
 
@@ -452,7 +452,7 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `backup_stream` | **仅备流 builder(F-180146070),而该 builder 只在开播分派 `upower_privilege_type==5`(§3.10/E-22)时被调用** | `itoa(param_8)`(builder 第 8 参,指令实证;分派器实参=常量 1) | ✅ `startLive(with_backup=true)`:先查 `getVisibleMode()`,==5 才注伴参;≠5 按官方普通路径发送并提示无资格(E-22) |
 | `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ✅ 默认恒注 `2`;探针 `backup_stream_type_probe` 非空可覆盖(实网复核) |
 | `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ✅ 默认恒注 `Paylive`;探针 `stream_biz_probe` 非空可覆盖(插件不做教室房) |
-| `src` | 备流 builder,**仅 `param_6==0`**(custom-rtmp 关);备流 builder 本身仅 `upower_privilege_type==5` 触发(§3.10/E-22) | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):开播(含备流)资格门(E-22)通过后先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。**订正(E-22)**:官方普通开播走标准 builder,**不带** src+备流三参;此前「官方恒带」判断作废 |
+| `src` | 备流 builder,**仅 `param_6==0`**(custom-rtmp 关);备流 builder 本身仅 `upower_privilege_type==5` 触发(§3.10/E-22) | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):单「开播」按钮资格门(E-22)通过后先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。**订正(E-22)**:官方普通开播走标准 builder,**不带** src+备流三参;此前「官方恒带」判断作废 |
 | `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
@@ -468,7 +468,8 @@ F-180141ed0(不带备流三参)。⇒ 无备流资格账号官方从不发 `back
 70002;插件此前无条件强发备流伴参 = 70002 唯一诱因。仓库 `startLive(with_backup=true)` 已
 改为:先 `getVisibleMode()` 查资格,仅 `upower_privilege_type==5` 注 `src`+备流三参,
 ≠5 按官方普通请求发送并提示「无备流资格」(等同官方分派);资格查询失败则回退旧形态
-(强发+失败回退普通开播)。`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`
+(强发+失败回退普通开播)。UI 相应合并为**单「开播」按钮**(自动判定,原「开播(含备流)」按钮移除)。
+`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`
 保留作实网复核通道(非空时覆盖 builder 默认 `2`/`Paylive`)。
 
 ### 响应

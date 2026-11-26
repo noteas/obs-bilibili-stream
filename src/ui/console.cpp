@@ -36,7 +36,6 @@ enum Action : uintptr_t {
 	ACT_APPLY_TITLE,
 	ACT_APPLY_PARTITION,
 	ACT_START_LIVE,
-	ACT_START_LIVE_BACKUP,
 	ACT_STOP_LIVE,
 	ACT_RECOVER,
 	ACT_END_SESSION,
@@ -468,9 +467,9 @@ void do_recover_stream()
 		}));
 }
 
-void do_start_live(bool with_backup)
+void do_start_live()
 {
-	if (!begin_action(with_backup ? "开播(含备流)" : "开播"))
+	if (!begin_action("开播"))
 		return;
 	auto config = g_config.config();
 	struct StartResult {
@@ -489,7 +488,7 @@ void do_start_live(bool with_backup)
 	result->mid = config.mid;
 
 	Http::HttpClient::runAsync(
-		[config, result, with_backup]() mutable {
+		[config, result]() mutable {
 			// 开播前置(官方序): PreCheck 合规拦截(§3.5)→ 播前状态观测(§3.6,
 			// 取值域未钉死,仅记日志)→ startLive。legacy 下跳过 PreCheck
 			// (官方端点专属)。
@@ -505,10 +504,13 @@ void do_start_live(bool with_backup)
 				else
 					obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
 			}
+			// 备流自动判定(E-22 官方同款分派):with_backup=true 模式在
+			// startLive 内先查 GetVisibleMode——upower_privilege_type==5 才发
+			// 备流三参请求,否则自动按官方普通开播发送;原因经 message 上抛
+			// (成功分支以提示形式展示),UI 不再提供单独的备流开播按钮。
 			result->ok = Bili::BiliApi::startLive(
 				config, result->addr, result->code, result->message, result->faceQr, result->mid,
-				with_backup, with_backup ? &result->backupAddr : nullptr,
-				with_backup ? &result->backupCode : nullptr, &result->facePage);
+				true, &result->backupAddr, &result->backupCode, &result->facePage);
 			// startLive 把 protocols[]/protocols_backup[] 全量写进 config 的副本;
 			// 必须带回 UI 线程,否则成功分支会把 stream_targets 覆盖成空表。
 			result->targets = config.stream_targets;
@@ -529,7 +531,8 @@ void do_start_live(bool with_backup)
 					cfg.mid = result->mid;
 				g_config.save();
 				const size_t n = cfg.stream_targets.size();
-				// message 在成功分支只承载「备流被拒已回退」类提示。
+				// message 在成功分支只承载「备流自动判定」类提示
+				// (无资格已按普通发送 / 备流被拒已回退)。
 				set_status(result->message.empty() ? LEVEL_INFO : LEVEL_WARNING,
 					   "开播成功,已获取 " + std::to_string(n) +
 						   " 条推流线路(地址/推流码可复制);插件未修改 OBS 配置,请手动填入 OBS 推流设置后点\"开始直播\"" +
@@ -824,10 +827,7 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		do_apply_partition();
 		break;
 	case ACT_START_LIVE:
-		do_start_live(false);
-		break;
-	case ACT_START_LIVE_BACKUP:
-		do_start_live(true);
+		do_start_live();
 		break;
 	case ACT_STOP_LIVE:
 		do_stop_live();
@@ -999,9 +999,9 @@ obs_properties_t *console_properties(void *data)
 			  !g_busy && cfg.login_status && !cfg.use_legacy_endpoints);
 
 	// --- 开播/停播 ---
+	// 单「开播」按钮自动判定备流资格(E-22 官方同款分派):startLive 内先查
+	// GetVisibleMode,==5 自动发备流请求,否则自动按官方普通开播发送并提示。
 	add_action_button(props, "btn_start_live", "开播", ACT_START_LIVE,
-			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
-	add_action_button(props, "btn_start_live_backup", "开播(含备流)", ACT_START_LIVE_BACKUP,
 			  !g_busy && cfg.login_status && !cfg.room_id.empty() && !cfg.streaming);
 	add_action_button(props, "btn_stop_live", "停播", ACT_STOP_LIVE, !g_busy && cfg.streaming);
 	// M1b: 仅"服务端在播而本地未推流"时可用(恢复=找回地址后展示,不碰推流按钮/OBS 配置)。
