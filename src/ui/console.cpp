@@ -82,8 +82,6 @@ bool g_partitions_tried = false;
 std::string g_draft_title;
 int g_draft_part = 0;
 int g_draft_area = 0;
-// on_part_changed 触发 update_properties 的防再入锁(见该函数注释的 OBS 32 递归链)。
-bool g_props_reload_guard = false;
 // §5.4/§5.5 拉取结果的多行展示(推荐码率/干预/编码能力),空=未拉取。
 std::string g_quality_info;
 
@@ -781,52 +779,44 @@ bool on_value_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings
 
 const json11::Json *find_parent(const json11::Json &partitions, int partId);
 
-bool on_part_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings)
+bool on_part_changed(obs_properties_t *props, obs_property_t *, obs_data_t *settings)
 {
 	sync_draft(settings);
-	// 二级下拉框跟随大类(用户报障 2026-11-26):OBS 在 modified 回调返回 true 后
-	// 重建属性表,但 get_properties 只能读到**已提交**的 source 设置(对话框编辑值
-	// 在重建后才经 UpdateSettings 回填控件)⇒ 二级列表条目必须按草稿里的新大类
-	// 重建;且对话框现值若仍指向旧大类的二级条目,须自动切到新大类首个二级并写回
-	// 对话框设置,否则下拉框显示不到位,看似未刷新。
-	if (g_partitions.is_array()) {
-		const json11::Json *parent = find_parent(g_partitions, g_draft_part);
-		int first_area = 0;
-		bool area_valid = false;
-		if (parent) {
-			for (const auto &area : (*parent)["list"].array_items()) {
-				int id = 0;
-				if (!parse_area_id(area["id"], id))
-					continue;
-				if (first_area == 0)
-					first_area = id;
-				if (id == g_draft_area)
-					area_valid = true;
-			}
-		}
-		if (!area_valid && first_area > 0) {
-			obs_data_set_int(settings, KEY_AREA, first_area);
-			g_draft_area = first_area;
-		}
+	if (!props || !g_partitions.is_array())
+		return true;
+	// OBS 32.2 机制(源码 + 两次 coredump 实证):modified 回调返回值只决定
+	// 是否把 RefreshProperties 排队(Qt 队列,事件处理完后按**已缓存的**
+	// properties 对象重建控件);回调内既不重跑 get_properties,也绝不能
+	// 触发对话框刷新——update_properties 的 ReloadProperties 同线程直调,会
+	// 同步销毁控件树/重放 modified 回调,把仍在发信号的 combo 和正在执行的
+	// 回调自己拆掉(64386 无限递归爆栈、65402 Qt currentTextChanged 悬垂)。
+	// 正确最简做法 = 用 libobs 公共 API 原地改写缓存 property 的条目
+	// (obs_properties_get + list_clear + list_add_int),return true 让
+	// 排队的 Refresh 按新条目重建;选中值取对话框 settings,需同步写回。
+	obs_property_t *area_list = obs_properties_get(props, KEY_AREA);
+	const json11::Json *parent = find_parent(g_partitions, g_draft_part);
+	if (!area_list || !parent)
+		return true;
+	obs_property_list_clear(area_list);
+	int first_area = 0;
+	bool area_valid = false;
+	for (const auto &area : (*parent)["list"].array_items()) {
+		int id = 0;
+		if (!parse_area_id(area["id"], id))
+			continue;
+		obs_property_list_add_int(area_list, area["name"].string_value().c_str(), id);
+		if (first_area == 0)
+			first_area = id;
+		if (id == g_draft_area)
+			area_valid = true;
 	}
-	// 关键(OBS 32.2 源码实证,frontend/dialogs/OBSBasicProperties.cpp +
-	// shared/properties-view/properties-view.cpp + libobs/obs-properties.c):
-	// modified 回调返回 true 只触发 RefreshProperties(按**缓存的** properties
-	// 重建控件,不重跑 get_properties)⇒ 列表条目停在对话框打开时的形态。
-	// 重跑 get_properties 的唯一途径 = source 的 update_properties 信号
-	// (OBSBasicProperties 连接它 → ReloadProperties → reloadCallback,官方插件
-	// 的动态列表同款做法)。**但必须防再入**:ReloadProperties 会对新属性调
-	// obs_properties_apply_settings,该函数同步重放全部 modified 回调
-	// (obs-properties.c @376),而 invokeMethod(view,"ReloadProperties") 同线程
-	// 为直调 ⇒ 不锁死会成 update_properties→Reload→modified→update_properties
-	// 无限递归爆栈(2026-11-26 实崩,coredump 64386 六帧循环)。同一重建周期内
-	// 只需刷新一次,递归侧直接跳过。
-	if (!g_props_reload_guard && g_source) {
-		g_props_reload_guard = true;
-		obs_source_update_properties(g_source);
-		g_props_reload_guard = false;
+	// 现值仍指向旧大类的条目 → 自动切到新大类首个二级并写回对话框设置
+	// (Refresh 重建 combo 时按 settings 选中)。
+	if (!area_valid && first_area > 0) {
+		obs_data_set_int(settings, KEY_AREA, first_area);
+		g_draft_area = first_area;
 	}
-	return true; // rebuild the dialog so the sub-area list follows the parent
+	return true; // queued RefreshProperties rebuilds the combo with new items
 }
 
 bool on_button(obs_properties_t *, obs_property_t *, void *data)
