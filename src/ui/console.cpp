@@ -82,6 +82,8 @@ bool g_partitions_tried = false;
 std::string g_draft_title;
 int g_draft_part = 0;
 int g_draft_area = 0;
+// on_part_changed 触发 update_properties 的防再入锁(见该函数注释的 OBS 32 递归链)。
+bool g_props_reload_guard = false;
 // §5.4/§5.5 拉取结果的多行展示(推荐码率/干预/编码能力),空=未拉取。
 std::string g_quality_info;
 
@@ -808,14 +810,22 @@ bool on_part_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings)
 		}
 	}
 	// 关键(OBS 32.2 源码实证,frontend/dialogs/OBSBasicProperties.cpp +
-	// shared/properties-view/properties-view.cpp):modified 回调返回 true 只触发
-	// RefreshProperties(按**缓存的** properties 重建控件,不会重跑 get_properties)
-	// ⇒ 列表条目永远停在对话框打开时的形态,只 return true 无法刷新二级列表。
+	// shared/properties-view/properties-view.cpp + libobs/obs-properties.c):
+	// modified 回调返回 true 只触发 RefreshProperties(按**缓存的** properties
+	// 重建控件,不重跑 get_properties)⇒ 列表条目停在对话框打开时的形态。
 	// 重跑 get_properties 的唯一途径 = source 的 update_properties 信号
-	// (OBSBasicProperties 构造时连接它 → ReloadProperties → reloadCallback)。
-	// 官方插件(game capture 等)的动态列表同款做法:
-	if (g_source)
+	// (OBSBasicProperties 连接它 → ReloadProperties → reloadCallback,官方插件
+	// 的动态列表同款做法)。**但必须防再入**:ReloadProperties 会对新属性调
+	// obs_properties_apply_settings,该函数同步重放全部 modified 回调
+	// (obs-properties.c @376),而 invokeMethod(view,"ReloadProperties") 同线程
+	// 为直调 ⇒ 不锁死会成 update_properties→Reload→modified→update_properties
+	// 无限递归爆栈(2026-11-26 实崩,coredump 64386 六帧循环)。同一重建周期内
+	// 只需刷新一次,递归侧直接跳过。
+	if (!g_props_reload_guard && g_source) {
+		g_props_reload_guard = true;
 		obs_source_update_properties(g_source);
+		g_props_reload_guard = false;
+	}
 	return true; // rebuild the dialog so the sub-area list follows the parent
 }
 
