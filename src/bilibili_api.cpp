@@ -202,24 +202,29 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &refresh_token, std
 	// crossDomain?ticket=…) that no longer embeds SESSDATA/bili_jct/
 	// DedeUserID; following it sets the login cookies via Set-Cookie, and the
 	// legacy URL-query parameters stay as the last-resort fallback.
+	// **ticket 必须无条件跟随**(官方 H5 浏览器行为如此):同账号重登时 jar 里
+	// 有启动载入的旧 SESSDATA,曾按其存在短路跳过 ticket ⇒ 新会话 cookie 未落地、
+	// 旧 cookie 与新 refresh_token 不匹配,oauth 交换被服务端判 -101「账号未登录」
+	// (实网 2026-11-26)。
+	const std::string loginUrl = json["data"]["url"].string_value();
+	if (!loginUrl.empty()) {
+		obs_log(LOG_INFO, "跟随 crossDomain ticket URL 刷新 Cookies…");
+		Http::HttpClient::get(loginUrl);
+	}
 	if (!Http::HttpClient::has_cookie("SESSDATA")) {
-		std::string loginUrl = json["data"]["url"].string_value();
-		if (!loginUrl.empty()) {
-			obs_log(LOG_INFO, "从 crossDomain 跳转 URL 获取 Cookies...");
-			Http::HttpClient::get(loginUrl);
-		}
-		if (!Http::HttpClient::has_cookie("SESSDATA")) {
+		std::string fallbackUrl = loginUrl;
+		if (!fallbackUrl.empty()) {
 			obs_log(LOG_INFO, "从 URL 解析 Cookies...");
 			auto extractParam = [&](const std::string &key) -> std::string {
 				std::string search = key + "=";
-				size_t start = loginUrl.find(search);
+				size_t start = fallbackUrl.find(search);
 				if (start == std::string::npos)
 					return "";
 				start += search.length();
-				size_t end = loginUrl.find("&", start);
+				size_t end = fallbackUrl.find("&", start);
 				if (end == std::string::npos)
-					end = loginUrl.length();
-				return loginUrl.substr(start, end - start);
+					end = fallbackUrl.length();
+				return fallbackUrl.substr(start, end - start);
 			};
 			for (const char *key : {"SESSDATA", "bili_jct", "DedeUserID"}) {
 				std::string value = extractParam(key);

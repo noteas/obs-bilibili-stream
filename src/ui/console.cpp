@@ -201,6 +201,13 @@ void refresh_login_chain()
 	Http::HttpClient::runAsync(
 		[result, legacy, stored_refresh_token]() {
 			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
+			// B3: 官方 H5 登录成功后刷新全域 Cookie(sso/list);失败不影响登录态(仅日志)。
+			// 必须排在 access_key 交换**之前**:浏览器先完成全域 cookie 传播,
+			// 再把 token 交给原生交换;此前顺序颠倒(交换跑在未传播状态上)。
+			if (result->loggedIn) {
+				std::string ssoMessage;
+				Bili::BiliApi::propagateSso(ssoMessage);
+			}
 			// App OAuth 身份:官方登录后 SecretCore 一直持有 access_key,并在
 			// 每次 app-blink 请求里发送。插件用持久化的 refresh_token 换/续。
 			if (result->loggedIn && !stored_refresh_token.empty()) {
@@ -217,9 +224,7 @@ void refresh_login_chain()
 				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(
 					result->roomId, result->csrf, result->message, !legacy);
 			if (result->roomOk) {
-				// B3: 官方 H5 登录成功后刷新全域 Cookie;失败不影响登录态(仅日志)。
-				std::string ssoMessage;
-				Bili::BiliApi::propagateSso(ssoMessage);
+				// SSO 全域传播已提前到交换之前(B3)。
 				if (!legacy) {
 					// §3.3 room/GetInfo: live_status 实测在这里;§3.1
 					// getInfoByUser 全树无该字段(2026-11-25 实网钉死,
