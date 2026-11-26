@@ -21,7 +21,7 @@
 | M1 | `milestone/m1-startlive` | startLive 参数集(checked="0"、type、recommend_protocol/ip、backup_stream、条件注入)+ 响应解析(live_key/protocols[]/protocols_backup/notice/v_voucher)+ 线路全量展示(所有协议,可复制;ADR-0005：不写 OBS 配置)+ v_voucher 轻量链(浏览器验证页) | B4、C5(rtmp/srt) | 主体完成(2026-11-25:checked/type 钉死并注入、recommend_* 隐藏配置透传、响应解析、PreCheck 阻断+播前状态观测、线路全量展示落地;xcode/多路=不做项;多协议线路随响应全量展示,v_voucher 现为文案透出) |
 | M1b | `milestone/m1b-reconnect` | 启动即查(已登录才查)`live_status==1` → 控制台提示恢复;`GetUpStreamRtmp`→`ReconnectLiveInfo{can_change,urls,message}`;恢复=找回地址后线路展示;「结束进行中场次」按钮(stopLive 清残留,二次确认) | C1 | 完成(2026-11-25:§7.1 解析器钉死,恢复链=get_stream_by_roomId 优先→GetUpStreamRtmp 备用;两段式确认结束场次;登录链 live_status 透出+启动即查已有;恢复形状待账号实测) |
 | M2 | `milestone/m2-quality` | **前置已完成(2026-11-25,U-Q 钉死,用户确认新模型)**:GetQualityData/QualityCallback=线路质量探测/回执(非档位);码率口径=GetUpStreamVideoQualityConfig(推荐/默认+干预,管线例外 bitrate_intervention=1 sign 后);H265 读 can_enable、AV1 读 can_hard_encode。范围:拉取展示推荐码率+干预+编码能力 → 用户设码率只写当前视频编码器 bitrate;无档位/无回执 | C4 | 完成(2026-11-25:三端点+控制台质量区落地,真机加载验证;干预/推荐值形状待账号实测) |
-| M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 全量展示(按 ADR-0005 改为线路展示,不做「切到备流」按钮) | — | 完成(2026-11-25:开播(含备流)→主/备线路全量入 `config.stream_targets` 并逐条展示;backup_stream_type/stream_biz 字面值待 app 层反编译(LivehimeLiveRoomController::OpenLiveRoom→StartLiveInfo);**备流被拒回退**——实网 70003 自动按普通开播重试并上抛原因;语义更正:备流=主备双通道(可同时推、主流失效备流生效),插件只展示备流通道数据;U6 探针(hidden config `backup_stream_type_probe`/`stream_biz_probe`)待用户在场实测) |
+| M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 全量展示(按 ADR-0005 改为线路展示,不做「切到备流」按钮) | — | 完成(2026-11-25:开播(含备流)→主/备线路全量入 `config.stream_targets` 并逐条展示;backup_stream_type/stream_biz 字面值已定(E-19:RequestStartLive 14 参 vcall 实锤 backup_stream_type=2/stream_biz="Paylive",教室房 "ClassRoom";U6 路由=槽 0x68 备流 builder);**备流被拒回退**——实网 70003 自动按普通开播重试并上抛原因;语义更正:备流=主备双通道(可同时推、主流失效备流生效),插件只展示备流通道数据;U6 探针(hidden config `backup_stream_type_probe`/`stream_biz_probe`)待用户在场实测) |
 
 ## 控制台字段清单(M0 验收口径,后续里程碑逐项激活)
 
@@ -42,7 +42,7 @@
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集与 `protocols_backup[]` 的形状(`type` 已钉死=`"1"`+类型索引) | 已解除:不再做协议选择,线路全量展示(ADR-0005);实测取值 `bmtsrt,bmt,srt×3,rtmp×2` |
 | U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2 已按新模型完成(A0) |
-| U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60) | M1b(已解除) |
+| U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60);`src`(整数)=startLive `src` 参数唯一来源,经 service 子对象 `vt[0xf8]` 透传(E-19) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
 | U-A | stopLive 60034: 公共参数 `access_key` 已补,扫码 refresh_token → `/api/v2/oauth2/refresh_token` 已实现;待真实扫码确认 poll 带 token、refresh 成功、60034 消失 | 待实网 |
 

@@ -439,9 +439,9 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
 | `backup_stream` | 备流 builder(F-180146070) | `itoa(param_8)`(builder 第 8 参,指令实证) | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
-| `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字) | ⚠ 省略(不猜值) |
-| `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运) | ⚠ 省略(不猜值) |
-| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);同分支内 `checked="0"` | ❌(官方普通路径 param_6≠0 时不发;仓库恒发 checked 亦为可接受超集) |
+| `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ⚠ 当前省略;官方恒传值已定(E-19),可对齐 |
+| `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ⚠ 当前省略;官方恒传值已定(E-19),可对齐 |
+| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ❌(官方普通路径 param_6≠0 时不发;仓库恒发 checked 亦为可接受超集) |
 | `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
@@ -449,8 +449,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 **备流语义(用户澄清 2026-11-26)**:`backup_stream=1` 请求的是**第二条独立推流通道**
 (`protocols_backup[]`/`rtmp_backup`,自己的地址与推流码),与主流可同时推;
 主流失效时转发侧自动切到备流。**不是**同 key 的多个地址(同 key 二次连接会被拒)。
-U6 探针:`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空才注入,
-用于实测补钉)。
+U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);探针
+`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空才注入)保留作实网复核。
 
 ### 响应
 ```json
@@ -497,8 +497,14 @@ U6 探针:`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空
   vtable@0x18111f628);槽 13(+0x68)=F-180146070(备流/多路),
   槽 14(+0x70)=F-180141ed0(标准)。二者均无静态 CALL xref(纯虚调用),
   实参由 app 层(`bililive.dll` 的 `LivehimeLiveRoomController::OpenLiveRoom`)
-  经 `secret::LiveStreamingService::StartLiveInfo` 结构传入——**param_8/9/10 的
-  字面值只能从 app 层反编译取**(U6 剩余部分)。
+  经 `secret::LiveStreamingService::StartLiveInfo` 结构传入。
+- **U6 已闭合(2026-11-26, E-19)**:`bililive.dll` 的 `RequestStartLive`(入口 `0x180d603a0`,
+  0x180d604e8 在函数体内)尾部 **14 实参 vcall** 固定打槽 `0x68`(slot13)=F-180146070(备流/多路);
+  实参字面量 `param_8=1 / param_9=2 / param_10="Paylive"`(教室房 `"ClassRoom"`) ⇒ 实网 URL
+  **恒带** `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`;14 实参几何上排除
+  12 参的槽 `0x70`(标准 builder)。同 vcall 前置 getter 链:service 子对象 `vt[0x60]`/`vt[0x98]`/
+  `vt[0xf8]`/`vt[0x100]` = room_id/area_v2/src/checked;`src` 值域 =
+  `get_stream_by_roomId` 响应 `data.stream_line[].src`(E-19 §三)。
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
 - 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
   (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、
@@ -783,7 +789,7 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
-| U6 | 备流 `backup_stream_type`/`stream_biz` 取值 | §4.1。**调用方字面量已定位(2026-11-26,`RequestStartLive`=`FUN_180d603a0` 14 参 vcall)**:官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`);**未决**:service 内部把这三参路由到标准 builder(slot14) 还是备流 builder(slot13)——决定实网 URL 是否恒带这三参,待 secret.dll 全分析工程钉(re/ghidra_secret) |
+| U6 | ~~备流 `backup_stream_type`/`stream_biz` 取值~~ | §4.1。🟢 **闭合(2026-11-26, E-19)**:`RequestStartLive`(`bililive.dll` 入口 `0x180d603a0`)尾部 **14 实参 vcall 固定路由到 service vtable 槽 `0x68`(slot13)=F-180146070 备流/多路 builder**(14 实参几何上排除 12 参的标准 builder 槽 `0x70`=F-180141ed0);官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`) ⇒ 实网 URL **恒带** `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`。证据 `re/evidence/19-u6-g1-closed.md` |
 | U-QS | `GetQualityData` 的 `streamName`/`key` 取值构造 | §5.3 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |
