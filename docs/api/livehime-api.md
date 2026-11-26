@@ -73,7 +73,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
 | 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验**(2026-11-26 复验:伴参补齐后转 70002,见下行) |
 | 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验。**复验 2026-11-26(src=8 已注入,仍 70002)**:body 与官方 Normal 默认字面量全等(`backup_stream=1&backup_stream_type=2&stream_biz=Paylive&type=1&checked=0&src`,LIVE-CHAIN §2.5 终稿)⇒ 差异不在 body。官方结果回调(`FUN_180d63460`,§2.7)对 startLive 失败**无回退重试**=直播姬同样会报此错,插件的「回退普通开播」是插件自有设计。**首要嫌疑=access_key 缺失**(公共参数注入器恒带非空 App OAuth 身份,服务端按它判定;先例=stopLive 60034),待扫码重登补 access_key 后复验。**复验 2026-11-26(扫码重登后仍 70002)**:access_key 假设**未获测**——refresh_token 交换本身失败(-101,见 60034 行),官方 web 登录用户的 access_key 可能同样为空(单 appkey 实证)⇒ 嫌疑降级。**排除清单**:body 参数(=官方默认字面量,指令级)、appkey(二进制内唯一)、src(=stream_line[0].src=8 已注入)、错误码特判(官方无)。**剩余候选**:①传输层指纹(Referer/Origin/cookie 完整度/traceid 格式)②服务端按账号/房间不下发备流资格(则官方同账号也会命中 70002=直播姬同样报错)。**裁决实验(定案前不再改参)**:同账号跑官方直播姬开播——若也报「获取推流地址失败」⇒②成立,插件对齐已到终点;若官方成功⇒①,以代理 capture 官方 startLive 对包定差异 |
-| 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。根因=官方公共参数 `FUN_180063f70` 恒带 App OAuth `access_key`，插件旧实现漏发；现已用扫码 `refresh_token` 调 `/api/v2/oauth2/refresh_token` 换取并签名发送，待真实扫码/停播实测（E-15）。**实网复验 2026-11-26:E-15 的交换链路实测失败——web 扫码 poll 返回的 refresh_token 用官方同款 appkey(二进制内唯一 appkey=aae92bc66f3edfab,strings 实证)/同款构造 POST refresh 端点返回 -101「账号未登录」,与探针无效 token 同码 ⇒「web token 可直接换 access_key」为 E-15 [推断] 被证伪;真实交换还需什么(web↔app token 桥接)未知。停播已恢复正常但无法区分是 access_key 生效还是维护窗口结束——60034 归因存疑,以 capture 为准。** 备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
+| 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。**根因修正(2026-11-26 实网双证据)**:失败于 11-25;修复 `3417d87`(11-26 09:02)同时补齐 stopLive 的 `version/platform/build` 公共参数与 access_key 交换;20:43 停播成功时 **access_key 实测为空**(21:06 才首次触发交换且失败)⇒ **政策放行不需要非空 access_key,生效项=App 版本参数指纹(version/build/platform)**(残余不确定:11-25~26 间政策窗口恰结束无法离线排除)。access_key 交换链(web refresh_token→oauth2/refresh_token)本身实网 -101,系 E-15 [推断],真实桥接方式待 capture。推论:服务端「直播姬身份」判定以参数/传输指纹为主,70002 的 access_key 嫌疑随之弱化。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
 
@@ -726,12 +726,10 @@ POST https://api.live.bilibili.com/room/v1/Room/stopLive
 仅信封: parser F-180148980 只校验 `code/message`, 无 data 字段。
 
 ### 60034
-服务端按 App OAuth 身份判定。官方每个 stopLive 都带 `access_key`;插件旧实现漏发,
-故被“仅直播姬可关播”拦截。2026-11-26 已改为用扫码 refresh_token 换 access_key
-并随公共参数签名发送(E-15),待真实扫码/停播实测。
+服务端判定「直播姬身份」的实网生效项=**公共参数版本指纹 `version/platform/build`**(2026-11-26 实证:补齐公共参数组后停播成功时 access_key 仍为空⇒非空 access_key 非必要;详见 §1.2 60034 行)。官方每个 stopLive 确实带 access_key 键(FUN_180063f70 恒注,值=App OAuth token,web 登录用户可能为空);插件已对齐六项公共参数(2026-11-26),access_key 值以交换成功为准(交换实测 -101,桥接待查)。
 
 ### 证据: builder F-1801482d0(URL xref 0x1801484e0, E-09 §3);公共参数 FUN_180063f70(E-15);
-仓库 `stopLive()` ✅(access_key 已对齐,待实网验证)。
+仓库 `stopLive()` ✅(公共参数组已对齐;实网停播成功 2026-11-26)。
 
 ## 6.2 停播收尾组
 
