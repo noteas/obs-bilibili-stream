@@ -41,7 +41,7 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 ## 构建
 
-配置/构建 preset 见 `CMakePresets.json`(linux preset,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包,均无 Qt)。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
+配置/构建 preset 见 `CMakePresets.json`(configure preset `ubuntu-x86_64`,产物目录 `build_x86_64/`,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包,均无 Qt)。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
 
 ## 安装，运行
 
