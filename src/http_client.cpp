@@ -34,9 +34,9 @@ static const char *const LIVEHIME_UA =
 // in-memory only.
 static const char *const PERSIST_COOKIE_KEYS[] = {"SESSDATA", "bili_jct", "DedeUserID", "buvid3", "buvid4"};
 
-// client_traceid 不再自造:E-21 证实官方仅在会话 traceid 非空时才发该头,插件
-// 无服务端来源即应缺省不发(此前自造随机 UUID 属虚构数据,见 E-21)。值改由
-// 配置(client_traceid_probe)经 set_traceid() 注入。
+// client_traceid 恒不发:E-21 证实官方仅在会话 traceid 非空时才发该头,插件
+// 无服务端来源即应缺省不发(此前自造随机 UUID 属虚构数据,见 E-21)。3.0.2
+// 起不再保留任何注入通道。
 
 // ---------------------------------------------------------------------------
 // cookie jar + identity state (mutex-guarded: mutated on the worker thread by
@@ -46,7 +46,6 @@ namespace {
 std::mutex jar_mutex;
 std::map<std::string, std::string> cookie_jar;
 std::function<void(const std::string &)> cookie_change_callback;
-std::string g_traceid;
 
 bool is_persistent_key(const std::string &key)
 {
@@ -181,15 +180,8 @@ void HttpClient::set_cookie_change_callback(std::function<void(const std::string
 
 const std::string &HttpClient::traceid()
 {
-	return g_traceid;
-}
-
-void HttpClient::set_traceid(const std::string &traceid)
-{
-	// Called once at plugin load (config), before any request fires on the worker
-	// thread; matches the lock-free traceid() accessor's initialization contract.
-	std::lock_guard<std::mutex> lock(jar_mutex);
-	g_traceid = traceid;
+	static const std::string empty;
+	return empty;
 }
 
 const char *HttpClient::user_agent()

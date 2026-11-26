@@ -38,17 +38,7 @@ void ConfigManager::load()
 	m_config.rtmp_code = obs_data_get_string(settings, "rtmp_code");
 	m_config.part_id = static_cast<int>(obs_data_get_int(settings, "part_id"));
 	m_config.area_id = static_cast<int>(obs_data_get_int(settings, "area_id"));
-	m_config.use_legacy_endpoints = obs_data_get_bool(settings, "use_legacy_endpoints");
-	m_config.recommend_protocol = obs_data_get_string(settings, "recommend_protocol");
-	m_config.recommend_ip = obs_data_get_string(settings, "recommend_ip");
 	m_config.bitrate_kbps = static_cast<int>(obs_data_get_int(settings, "bitrate_kbps"));
-	m_config.rtmp_backup_addr = obs_data_get_string(settings, "rtmp_backup_addr");
-	m_config.rtmp_backup_code = obs_data_get_string(settings, "rtmp_backup_code");
-	m_config.backup_stream_type_probe = obs_data_get_string(settings, "backup_stream_type_probe");
-	m_config.stream_biz_probe = obs_data_get_string(settings, "stream_biz_probe");
-	m_config.client_traceid_probe = obs_data_get_string(settings, "client_traceid_probe");
-	m_config.access_key = obs_data_get_string(settings, "access_key");
-	m_config.refresh_token = obs_data_get_string(settings, "refresh_token");
 	// 线路表(ADR-0005):JSON 数组持久化,便于停播后仍可抄地址。
 	{
 		m_config.stream_targets.clear();
@@ -92,18 +82,7 @@ void ConfigManager::save()
 	obs_data_set_string(settings, "rtmp_code", m_config.rtmp_code.c_str());
 	obs_data_set_int(settings, "part_id", m_config.part_id);
 	obs_data_set_int(settings, "area_id", m_config.area_id);
-	obs_data_set_bool(settings, "use_legacy_endpoints", m_config.use_legacy_endpoints);
-	obs_data_set_string(settings, "recommend_protocol", m_config.recommend_protocol.c_str());
-	obs_data_set_string(settings, "recommend_ip", m_config.recommend_ip.c_str());
 	obs_data_set_int(settings, "bitrate_kbps", m_config.bitrate_kbps);
-	obs_data_set_string(settings, "rtmp_backup_addr", m_config.rtmp_backup_addr.c_str());
-	obs_data_set_string(settings, "rtmp_backup_code", m_config.rtmp_backup_code.c_str());
-	obs_data_set_string(settings, "backup_stream_type_probe",
-			    m_config.backup_stream_type_probe.c_str());
-	obs_data_set_string(settings, "stream_biz_probe", m_config.stream_biz_probe.c_str());
-	obs_data_set_string(settings, "client_traceid_probe", m_config.client_traceid_probe.c_str());
-	obs_data_set_string(settings, "access_key", m_config.access_key.c_str());
-	obs_data_set_string(settings, "refresh_token", m_config.refresh_token.c_str());
 	{
 		std::vector<json11::Json> items;
 		for (const auto &t : m_config.stream_targets) {

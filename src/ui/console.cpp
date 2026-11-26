@@ -185,66 +185,44 @@ void refresh_login_chain()
 	struct LoginChainResult {
 		bool loggedIn = false;
 		bool roomOk = false;
-		bool tokenRefreshed = false;
 		std::string message;
 		std::string mid;
 		std::string roomId;
 		std::string csrf;
-		std::string accessKey;
-		std::string refreshToken;
 		std::string roomState; // §3.1: 场次/封禁一句话(空=不可用)
 		int liveStatus = -1;   // §3.1 live_status 原值(M1b 断流找回判据)
 	};
-	const bool legacy = g_config.config().use_legacy_endpoints;
-	const std::string stored_refresh_token = g_config.config().refresh_token;
 	Http::HttpClient::runAsync(
-		[result, legacy, stored_refresh_token]() {
+		[result]() {
 			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
 			// B3: 官方 H5 登录成功后刷新全域 Cookie(sso/list);失败不影响登录态(仅日志)。
-			// 必须排在 access_key 交换**之前**:浏览器先完成全域 cookie 传播,
-			// 再把 token 交给原生交换;此前顺序颠倒(交换跑在未传播状态上)。
 			if (result->loggedIn) {
 				std::string ssoMessage;
 				Bili::BiliApi::propagateSso(ssoMessage);
 			}
-			// App OAuth 身份:官方登录后 SecretCore 一直持有 access_key,并在
-			// 每次 app-blink 请求里发送。插件用持久化的 refresh_token 换/续。
-			if (result->loggedIn && !stored_refresh_token.empty()) {
-				std::string tokenMessage;
-				if (Bili::BiliApi::refreshAccessToken(stored_refresh_token, result->accessKey,
-								      result->refreshToken, tokenMessage)) {
-					result->tokenRefreshed = true;
-				} else {
-					obs_log(LOG_WARNING, "刷新 access_key 失败(不影响登录): %s",
-						tokenMessage.c_str());
-				}
-			}
 			if (result->loggedIn)
 				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(result->roomId, result->csrf,
-										 result->message, !legacy);
+										 result->message);
 			if (result->roomOk) {
-				// SSO 全域传播已提前到交换之前(B3)。
-				if (!legacy) {
-					// §3.3 room/GetInfo: live_status 实测在这里;§3.1
-					// getInfoByUser 全树无该字段(2026-11-25 实网钉死,
-					// 此前解析挂错端点导致在播恒显「未开播」)。
-					// live_status 1=直播中 2=轮回;lock_status/lock_time
-					// 为封禁信号。取不到只降级,不断链。
-					std::string stateMessage;
-					json11::Json data = Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
-					if (data.is_object()) {
-						const int live_status = data["live_status"].int_value();
-						result->liveStatus = live_status;
-						const char *state = live_status == 1   ? "直播中"
-								    : live_status == 2 ? "轮回"
-										       : "未开播";
-						result->roomState = std::string("场次:") + state;
-						if (data["lock_status"].int_value() != 0)
-							result->roomState += ", 锁定中";
-					} else {
-						obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s",
-							stateMessage.c_str());
-					}
+				// §3.3 room/GetInfo: live_status 实测在这里;§3.1
+				// getInfoByUser 全树无该字段(2026-11-25 实网钉死,
+				// 此前解析挂错端点导致在播恒显「未开播」)。
+				// live_status 1=直播中 2=轮回;lock_status/lock_time
+				// 为封禁信号。取不到只降级,不断链。
+				std::string stateMessage;
+				json11::Json data = Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
+				if (data.is_object()) {
+					const int live_status = data["live_status"].int_value();
+					result->liveStatus = live_status;
+					const char *state = live_status == 1   ? "直播中"
+							    : live_status == 2 ? "轮回"
+									       : "未开播";
+					result->roomState = std::string("场次:") + state;
+					if (data["lock_status"].int_value() != 0)
+						result->roomState += ", 锁定中";
+				} else {
+					obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s",
+						stateMessage.c_str());
 				}
 			}
 		},
@@ -258,11 +236,6 @@ void refresh_login_chain()
 			if (result->roomOk) {
 				cfg.room_id = result->roomId;
 				cfg.csrf_token = result->csrf;
-			}
-			if (result->tokenRefreshed) {
-				cfg.access_key = result->accessKey;
-				if (!result->refreshToken.empty())
-					cfg.refresh_token = result->refreshToken;
 			}
 			g_config.save();
 			// 服务端场次是唯一权威(GLOSSARY 开播/停播=服务端信令):
@@ -318,7 +291,6 @@ void do_login()
 	struct LoginResult {
 		bool ok = false;
 		std::string message;
-		std::string refreshToken; // mini-login-v2 poll 的 App OAuth 凭证
 	};
 	auto result = std::make_shared<LoginResult>();
 
@@ -354,7 +326,7 @@ void do_login()
 				if (Http::HttpClient::isStopping())
 					return;
 				std::string pollMsg;
-				if (Bili::BiliApi::qrLogin(qrKey, result->refreshToken, pollMsg)) {
+				if (Bili::BiliApi::qrLogin(qrKey, pollMsg)) {
 					result->ok = true;
 					return;
 				}
@@ -374,12 +346,6 @@ void do_login()
 		guarded([result]() {
 			end_action();
 			if (result->ok) {
-				// 官方 H5 把 poll 的 refresh_token 交给原生换 access_key。
-				// 先落盘,再走 refresh_login_chain(它会用该 token 换 access_key)。
-				if (!result->refreshToken.empty()) {
-					g_config.config().refresh_token = result->refreshToken;
-					g_config.save();
-				}
 				refresh_login_chain();
 				return;
 			}
@@ -475,8 +441,6 @@ void do_start_live()
 		std::string message;
 		std::string addr;
 		std::string code;
-		std::string backupAddr;
-		std::string backupCode;
 		std::vector<Bili::Config::StreamTarget> targets;
 		std::string faceQr;
 		std::string facePage;
@@ -488,27 +452,23 @@ void do_start_live()
 	Http::HttpClient::runAsync(
 		[config, result]() mutable {
 			// 开播前置(官方序): PreCheck 合规拦截(§3.5)→ 播前状态观测(§3.6,
-			// 取值域未钉死,仅记日志)→ startLive。legacy 下跳过 PreCheck
-			// (官方端点专属)。
-			if (!config.use_legacy_endpoints) {
-				if (!Bili::BiliApi::preLiveCheck(result->message)) {
-					obs_log(LOG_WARNING, "开播前置检查未通过: %s", result->message.c_str());
-					return;
-				}
-				int preStatus = -1;
-				std::string statusMessage;
-				if (Bili::BiliApi::getRoomPreLiveStatus(preStatus, statusMessage))
-					obs_log(LOG_INFO, "播前状态 GetRoomPreLiveStatus: status=%d", preStatus);
-				else
-					obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
+			// 取值域未钉死,仅记日志)→ startLive。
+			if (!Bili::BiliApi::preLiveCheck(result->message)) {
+				obs_log(LOG_WARNING, "开播前置检查未通过: %s", result->message.c_str());
+				return;
 			}
+			int preStatus = -1;
+			std::string statusMessage;
+			if (Bili::BiliApi::getRoomPreLiveStatus(preStatus, statusMessage))
+				obs_log(LOG_INFO, "播前状态 GetRoomPreLiveStatus: status=%d", preStatus);
+			else
+				obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
 			// 备流自动判定(E-22 官方同款分派):with_backup=true 模式在
 			// startLive 内先查 GetVisibleMode——upower_privilege_type==5 才发
 			// 备流三参请求,否则自动按官方普通开播发送;原因经 message 上抛
 			// (成功分支以提示形式展示),UI 不再提供单独的备流开播按钮。
 			result->ok = Bili::BiliApi::startLive(config, result->addr, result->code, result->message,
-							      result->faceQr, result->mid, true, &result->backupAddr,
-							      &result->backupCode, &result->facePage);
+							      result->faceQr, result->mid, true, &result->facePage);
 			// startLive 把 protocols[]/protocols_backup[] 全量写进 config 的副本;
 			// 必须带回 UI 线程,否则成功分支会把 stream_targets 覆盖成空表。
 			result->targets = config.stream_targets;
@@ -520,10 +480,6 @@ void do_start_live()
 				cfg.streaming = true;
 				cfg.rtmp_addr = result->addr;
 				cfg.rtmp_code = result->code;
-				if (!result->backupAddr.empty()) {
-					cfg.rtmp_backup_addr = result->backupAddr;
-					cfg.rtmp_backup_code = result->backupCode;
-				}
 				cfg.stream_targets = result->targets;
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
@@ -582,8 +538,6 @@ void do_stop_live()
 						   g_config.config().streaming = false;
 						   g_session_in_progress = false; // 服务端已停播,恢复入口关闭
 						   // 场次结束,线路与密钥随场次作废(密钥每场新生成)。
-						   g_config.config().rtmp_backup_addr.clear();
-						   g_config.config().rtmp_backup_code.clear();
 						   g_config.config().stream_targets.clear();
 						   g_config.save();
 						   set_status(LEVEL_INFO, "已停播");
@@ -1000,7 +954,7 @@ obs_properties_t *console_properties(void *data)
 	if (!g_quality_info.empty())
 		obs_properties_add_text(props, "st_quality", g_quality_info.c_str(), OBS_TEXT_INFO);
 	add_action_button(props, "btn_fetch_quality", "拉取推荐码率与编码能力", ACT_FETCH_QUALITY,
-			  !g_busy && cfg.login_status && !cfg.use_legacy_endpoints);
+			  !g_busy && cfg.login_status);
 
 	// --- 开播/停播 ---
 	// 单「开播」按钮自动判定备流资格(E-22 官方同款分派):startLive 内先查
@@ -1053,11 +1007,6 @@ void ConsoleCreate()
 {
 	g_alive = true;
 	g_config.load();
-	// App OAuth 身份随公共参数发送(官方 FUN_180063f70 恒注 access_key)。
-	Bili::BiliApi::setAccessKey(g_config.config().access_key);
-	// client_traceid 请求头:官方仅在会话 traceid 非空时才发(E-21);插件默认不
-	// 自造,值(若要用)由隐藏配置 client_traceid_probe 注入。
-	Http::HttpClient::set_traceid(g_config.config().client_traceid_probe);
 	g_draft_title = g_config.config().title;
 	g_draft_part = g_config.config().part_id;
 	g_draft_area = g_config.config().area_id;

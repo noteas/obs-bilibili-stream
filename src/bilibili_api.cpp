@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <sstream>
 #include <iostream>
-#include <mutex>
 #include "plugin_utils.hpp"
 #include "util/base.h"
 
@@ -16,12 +15,6 @@ namespace Bili {
 namespace {
 long g_build = 0;
 std::string g_curr_version;
-// App OAuth identity: official common-parameter injector FUN_180063f70 always
-// adds access_key (from SecretCore), so every app-blink/startLive/stopLive
-// request carries it. Set from config at boot and refreshed on the HTTP
-// worker; mutex only guards the UI-thread boot write vs worker reads.
-std::mutex g_access_mutex;
-std::string g_access_key;
 } // namespace
 
 // Bilibili puts the human readable error text in either "message" or "msg"
@@ -46,31 +39,22 @@ static std::string urlEncode(const std::string &s)
 
 // Clone of the official common-parameter injector (FUN_180063f70, decompiled from
 // bililive_secret.dll): every signed request carries ts, version, appkey, platform,
-// build and access_key. access_key is the App-OAuth identity the official client
-// obtains through the refresh_token exchange; the server uses it to distinguish
-// the official client (notably stopLive's 60034 policy). `appkey` itself is
-// injected by appsign(), so it is NOT listed here (the official map dedups keys;
-// our vector does not).
+// build and access_key. The official client's value comes from its App-OAuth
+// SecretCore; the Web-login token has no bridge to that channel (E-20: the
+// refresh_token exchange always answers -101), so the plugin always sends the
+// key with an empty value — the same shape as an official Web-login session,
+// and stopLive's 60034 policy has been proven to pass with an empty value.
+// `appkey` itself is injected by appsign(), so it is NOT listed here (the
+// official map dedups keys; our vector does not).
 // Callers must ensureVersionInfo() first: version/build values come from §3.4.
 // Wire-verified against the public getInfoByRoom endpoint (code=0).
 static std::vector<std::pair<std::string, std::string>> common_params()
 {
-	std::string access_key;
-	{
-		std::lock_guard<std::mutex> lock(g_access_mutex);
-		access_key = g_access_key;
-	}
 	return {{"ts", std::to_string(time(nullptr))},
 		{"version", g_curr_version},
 		{"platform", "pc_link"},
 		{"build", std::to_string(g_build)},
-		{"access_key", access_key}};
-}
-
-void BiliApi::setAccessKey(const std::string &access_key)
-{
-	std::lock_guard<std::mutex> lock(g_access_mutex);
-	g_access_key = access_key;
+		{"access_key", ""}};
 }
 
 std::string BiliApi::appsign(const std::vector<std::pair<std::string, std::string>> &params, const std::string &app_key,
@@ -123,8 +107,8 @@ void BiliApi::cleanup()
 bool BiliApi::getQrCode(std::string &qr_data, std::string &qr_key, std::string &message)
 {
 	// 官方 mini-login-v2 的 generate 带 source=$(origin)(LiveHime 为
-	// main_electron_pc)与 go_url;source 决定服务端下发 App 登录结果
-	// (poll 成功时的 refresh_token),因此这里与官方对齐。
+	// main_electron_pc)与 go_url;这里与官方请求形状对齐(poll 的
+	// refresh_token 已不再消费,见 qrLogin)。
 	auto response = Http::HttpClient::get(
 		"https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
 		"?source=main_electron_pc");
@@ -155,9 +139,8 @@ bool BiliApi::getQrCode(std::string &qr_data, std::string &qr_key, std::string &
 	return true;
 }
 
-bool BiliApi::qrLogin(const std::string &qr_key, std::string &refresh_token, std::string &message)
+bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 {
-	refresh_token.clear();
 	std::string url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qr_key +
 			  "&source=main_electron_pc";
 	auto response = Http::HttpClient::get(url);
@@ -204,8 +187,7 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &refresh_token, std
 	// legacy URL-query parameters stay as the last-resort fallback.
 	// **ticket 必须无条件跟随**(官方 H5 浏览器行为如此):同账号重登时 jar 里
 	// 有启动载入的旧 SESSDATA,曾按其存在短路跳过 ticket ⇒ 新会话 cookie 未落地、
-	// 旧 cookie 与新 refresh_token 不匹配,oauth 交换被服务端判 -101「账号未登录」
-	// (实网 2026-11-26)。
+	// 后续登录态请求仍带旧会话(实网 2026-11-26)。
 	const std::string loginUrl = json["data"]["url"].string_value();
 	if (!loginUrl.empty()) {
 		obs_log(LOG_INFO, "跟随 crossDomain ticket URL 刷新 Cookies…");
@@ -239,75 +221,7 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &refresh_token, std
 		return false;
 	}
 
-	// 官方 H5 在 poll 成功后把 data.refresh_token 交给原生
-	// (`auth/setRefreshToken`),原生再用它换 access_key。旧版响应可能没有该字段。
-	refresh_token = json["data"]["refresh_token"].string_value();
-	if (!refresh_token.empty())
-		obs_log(LOG_INFO, "扫码登录:拿到 refresh_token(将在本地换 access_key)");
-	else
-		obs_log(LOG_WARNING, "扫码登录:响应无 refresh_token,无法换取 App OAuth access_key"
-				     "(stopLive 可能仍被 60034 拦截)");
-
 	message = "二维码登录成功";
-	return true;
-}
-
-bool BiliApi::refreshAccessToken(const std::string &refresh_token, std::string &access_key,
-				 std::string &new_refresh_token, std::string &message)
-{
-	access_key.clear();
-	new_refresh_token.clear();
-	if (refresh_token.empty()) {
-		message = "无 refresh_token，无法换取 access_key";
-		return false;
-	}
-	// 官方 OAuth injector(FUN_1804bb820)只注 appkey/ts/platform;业务参数为
-	// access_token + refresh_token,随后 appsign(FUN_1804b3d60)。POST 表单。
-	// access_token 允许为空(首次交换时 SecretCore 里还没有 token)。
-	std::vector<std::pair<std::string, std::string>> params = {
-		{"ts", std::to_string(time(nullptr))},
-		{"platform", "pc_link"},
-		{"access_token", ""},
-		{"refresh_token", refresh_token},
-	};
-	std::string data = appsign(params, APP_KEY, APP_SECRET);
-	auto response =
-		Http::HttpClient::post("https://passport.bilibili.com/api/v2/oauth2/refresh_token", data);
-	obs_log(LOG_INFO, "换取 access_key: HTTP %ld", response.status);
-	if (response.status != 200) {
-		message = "换取 access_key 失败，状态码: " + std::to_string(response.status);
-		return false;
-	}
-	std::string err;
-	json11::Json json = json11::Json::parse(response.data, err);
-	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "换取 access_key 失败: " +
-			  (err.empty() ? jsonErrorMessage(json) : err);
-		obs_log(LOG_WARNING, "换取 access_key 失败: code=%d %s", json["code"].int_value(),
-			message.c_str());
-		return false;
-	}
-	const json11::Json token_info = json["data"]["token_info"];
-	access_key = token_info["access_token"].string_value();
-	new_refresh_token = token_info["refresh_token"].string_value();
-	if (access_key.empty()) {
-		message = "换取 access_key 失败: 响应缺少 data.token_info.access_token";
-		return false;
-	}
-	setAccessKey(access_key);
-	// token_info 与 cookie_info 同响应下发;cookie 落 jar,过期由服务端轮转。
-	int cookies = 0;
-	for (const auto &c : json["data"]["cookie_info"]["cookies"].array_items()) {
-		const std::string name = c["name"].string_value();
-		const std::string value = c["value"].string_value();
-		if (name.empty() || value.empty())
-			continue;
-		Http::HttpClient::inject_cookie(name, value);
-		++cookies;
-	}
-	obs_log(LOG_INFO, "access_key 已刷新(刷新令牌轮换: %s, cookies: %d)",
-		new_refresh_token.empty() ? "否" : "是", cookies);
-	message = "access_key 已刷新";
 	return true;
 }
 
@@ -344,8 +258,7 @@ bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 	return is_login;
 }
 
-bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
-			       bool prefer_official)
+bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message)
 {
 	const std::string dede_user_id = Http::HttpClient::cookie_value("DedeUserID");
 	if (dede_user_id.empty()) {
@@ -354,59 +267,27 @@ bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, st
 		return false;
 	}
 
-	if (prefer_official) {
-		// §3.3 room/GetInfo (builder F-1802b1e60: 业务参数仅 uId, 公共+sign, GET);
-		// parser F-1802b3690 实证回读 data.room_id。需登录态(未登录 -101)。
-		std::string stateMessage;
-		json11::Json data = getRoomInfoByUid(dede_user_id, stateMessage);
-		if (data.is_object()) {
-			const long long rid = (long long)data["room_id"].number_value();
-			if (rid > 0) {
-				room_id = std::to_string(rid);
-				csrf_token = Http::HttpClient::cookie_value("bili_jct");
-				if (!csrf_token.empty())
-					return true;
-				message = "无法从 Cookies 中提取 bili_jct";
-				return false;
-			}
-			stateMessage = "room/GetInfo 响应无有效 room_id";
-		}
-		obs_log(LOG_WARNING, "官方房间引导失败,回退老端点: %s", stateMessage.c_str());
-	}
-
-	std::string url = "https://api.live.bilibili.com/room/v2/Room/room_id_by_uid?uid=" + dede_user_id;
-	auto response = Http::HttpClient::get(url);
-	obs_log(LOG_INFO, "获取房间号: %s", response.data.c_str());
-	if (response.status != 200) {
-		message = "获取房间号失败，状态码: " + std::to_string(response.status);
-		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
-		}
+	// §3.3 room/GetInfo (builder F-1802b1e60: 业务参数仅 uId, 公共+sign, GET);
+	// parser F-1802b3690 实证回读 data.room_id。需登录态(未登录 -101)。
+	// 3.0.2 起不再回退旧 Web 端点 room/v2/Room/room_id_by_uid:该端点不在
+	// 官方客户端调用集内,失败时如实上报,不做静默端点切换。
+	std::string stateMessage;
+	json11::Json data = getRoomInfoByUid(dede_user_id, stateMessage);
+	if (!data.is_object()) {
+		message = "获取房间号失败: " + stateMessage;
 		return false;
 	}
-
-	std::string err;
-	json11::Json json = json11::Json::parse(response.data, err);
-	if (!err.empty()) {
-		obs_log(LOG_ERROR, "JSON 解析失败: %s", err.c_str());
-		message = "Json 解析失败: " + err;
+	const long long rid = (long long)data["room_id"].number_value();
+	if (rid <= 0) {
+		message = "room/GetInfo 响应无有效 room_id";
 		return false;
 	}
-	if (json["code"].int_value() != 0) {
-		const std::string detail = jsonErrorMessage(json);
-		obs_log(LOG_ERROR, "API 返回错误，code: %d, message: %s", json["code"].int_value(), detail.c_str());
-		message = "API 返回错误， code: " + std::to_string(json["code"].int_value()) + ", message: " + detail;
-		return false;
-	}
-
-	room_id = std::to_string(json["data"]["room_id"].int_value());
+	room_id = std::to_string(rid);
 	csrf_token = Http::HttpClient::cookie_value("bili_jct");
 	if (csrf_token.empty()) {
-		//obs_log(LOG_ERROR, "无法从 Cookies 中提取 bili_jct");
+		message = "无法从 Cookies 中提取 bili_jct";
 		return false;
 	}
-
-	//obs_log(LOG_INFO, "获取 room_id 和 csrf_token 成功: room_id=%s, csrf_token=%s", room_id.c_str(), csrf_token.c_str());
 	return true;
 }
 
@@ -832,8 +713,8 @@ bool BiliApi::canUseAv1Encoder(bool &can_hard_encode, std::string &message)
 }
 
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
-			std::string &face_qr, std::string &mid, bool with_backup, std::string *backup_addr,
-			std::string *backup_code, std::string *face_page_url)
+			std::string &face_qr, std::string &mid, bool with_backup,
+			std::string *face_page_url)
 {
 	if (config.room_id.empty() || config.csrf_token.empty()) {
 		obs_log(LOG_ERROR, "配置无效: room_id=%s, csrf_token=%s, title=%s", config.room_id.c_str(),
@@ -864,6 +745,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	// 保留回退普通开播兜底)。src 仅备流 builder 注入(E-19/G1):值 =
 	// get_stream_by_roomId 响应 data.stream_line[].src,原样透传,选取
 	// checked!=0 优先、无则首条;取不到=告警+无 src 发送,不阻断。
+	bool backup_requested = false;
 	if (with_backup) {
 		bool backup_gate = false;
 		std::string vmMsg;
@@ -884,6 +766,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 					"(官方规则:仅 =5 走备流开播),已按官方普通开播请求发送";
 		}
 		if (backup_gate) {
+			backup_requested = true;
 			std::string streamMsg;
 			const json11::Json lines =
 				getActiveStream(config.room_id, streamMsg)["stream_line"];
@@ -914,20 +797,11 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 				start_params.push_back({"src", src_value});
 			start_params.push_back({"backup_stream", "1"});
 			// 备流 builder F-180146070 恒传 param_8=2、param_9="Paylive"
-			// (教室房 "ClassRoom",插件不做教室房)。探针(隐藏配置)保留作
-			// 实网复核通道:非空时覆盖官方值。
-			start_params.push_back({"backup_stream_type", config.backup_stream_type_probe.empty()
-							     ? "2"
-							     : config.backup_stream_type_probe});
-			start_params.push_back({"stream_biz", config.stream_biz_probe.empty() ? "Paylive"
-											       : config.stream_biz_probe});
+			// (教室房 "ClassRoom",插件不做教室房)。
+			start_params.push_back({"backup_stream_type", "2"});
+			start_params.push_back({"stream_biz", "Paylive"});
 		}
 	}
-	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
-	if (!config.recommend_protocol.empty())
-		start_params.push_back({"recommend_protocol", config.recommend_protocol});
-	if (!config.recommend_ip.empty())
-		start_params.push_back({"recommend_ip", config.recommend_ip});
 	start_params.push_back({"csrf_token", config.csrf_token});
 	start_params.push_back({"csrf", config.csrf_token});
 	auto cp = common_params();
@@ -1010,7 +884,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		if (with_backup) {
 			const std::string reject = std::to_string(code) + " " + message;
 			obs_log(LOG_WARNING, "备流开播失败(%s),回退普通开播", reject.c_str());
-			if (startLive(config, rtmp_addr, rtmp_code, message, face_qr, mid, false, nullptr, nullptr,
+			if (startLive(config, rtmp_addr, rtmp_code, message, face_qr, mid, false,
 				      face_page_url)) {
 				message = "备流被服务端拒绝(" + reject + "),本场按普通开播";
 				return true;
@@ -1107,7 +981,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	// 官方解析器无条件读取该数组;插件同样全量收集(空数组=无操作),是否请求
 	// 备流只决定服务端是否下发。备流语义=主备双通道(GLOSSARY):只保存并展示
 	// 线路,不写 OBS 配置、不驱动第二路。
-	bool backup_rtmp = false;
+	bool backup_received = false;
 	for (const auto &target : json["data"]["protocols_backup"].array_items()) {
 		Config::StreamTarget t;
 		t.protocol = target["protocol"].string_value().empty() ? "rtmp"
@@ -1123,14 +997,10 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		if (t.addr.empty())
 			continue;
 		config.stream_targets.push_back(t);
-		if (backup_addr && backup_code && t.protocol == "rtmp" && !backup_rtmp) {
-			*backup_addr = t.addr;
-			*backup_code = t.key;
-			backup_rtmp = true;
-		}
+		backup_received = true;
 	}
-	if (backup_addr && backup_addr->empty())
-		obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup rtmp 项(观测: %s)",
+	if (backup_requested && !backup_received)
+		obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup 直连线路(观测: %s)",
 			response.data.c_str());
 
 	// 步骤10: 官方成功日志形态(addr/new_link/key),key 只记掩码。
@@ -1166,23 +1036,11 @@ bool BiliApi::stopLive(const Config &config, std::string &message)
 	if (!err.empty() || json["code"].int_value() != 0) {
 		const std::string detail = err.empty() ? jsonErrorMessage(json) : err;
 		obs_log(LOG_ERROR, "停止直播失败: %s", detail.c_str());
-		// 60034(实网 2026-11-25):服务端只认直播姬的 App OAuth 身份。官方每个
-		// app-blink 请求都带公共参数 access_key(FUN_180063f70);插件此前漏发,
-		// 现在用扫码 refresh_token 换 access_key 并随 stopLive 签名发送。
+		// 60034(实网 2026-11-25/26):服务端按 App 版本参数指纹放行停播;
+		// access_key 为空同样可过(实网定案,E-20)。此处只如实上抛政策拦截。
 		if (json["code"].int_value() == 60034) {
-			bool have_access_key = false;
-			{
-				std::lock_guard<std::mutex> lock(g_access_mutex);
-				have_access_key = !g_access_key.empty();
-			}
-			if (have_access_key)
-				message = "服务端策略:仅直播姬可关播(60034)。已随请求发送 access_key "
-					  "但仍被拒;请重新扫码登录刷新 App OAuth 身份后重试。"
-					  "也可在 OBS 停止推流,无推流数分钟后服务端自动结束本场次";
-			else
-				message = "服务端策略:仅直播姬可关播(60034)。当前没有 App OAuth "
-					  "access_key;请重新扫码登录以换取 access_key 后再停播。"
-					  "也可在 OBS 停止推流,无推流数分钟后服务端自动结束本场次";
+			message = "服务端策略:仅直播姬可关播(60034)。"
+				  "可在 OBS 停止推流,无推流数分钟后服务端自动结束本场次";
 		} else
 			message = "停止直播失败: " + detail;
 		return false;
@@ -1199,47 +1057,13 @@ bool BiliApi::updateRoomInfo(const Config &config, std::string &message, const s
 		return false;
 	}
 
-	if (!config.use_legacy_endpoints) {
-		// 官方拆成两个端点(契约 §4.2/§4.3): 标题/封面 → UpdatePreLiveInfo,
-		// 分区 → AnchorChangeRoomArea。老端点 Room/update 只在 legacy 开关下保留。
-		if (!title.empty() && !updatePreLiveInfo(config, title, message))
-			return false;
-		if (areaId >= 0 && !changeRoomArea(config, areaId, message))
-			return false;
-		return true;
-	}
-
-	std::string data = "room_id=" + config.room_id + "&platform=pc_link";
-	if (!title.empty()) {
-		char *escaped = curl_easy_escape(nullptr, title.c_str(), 0);
-		data += "&title=";
-		data += escaped ? escaped : title;
-		if (escaped)
-			curl_free(escaped);
-	}
-	if (areaId >= 0) {
-		data += "&area_id=" + std::to_string(areaId);
-	}
-	data += "&csrf_token=" + config.csrf_token + "&csrf=" + config.csrf_token;
-	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/update", data);
-	obs_log(LOG_INFO, "更新房间信息: %s", response.data.c_str());
-	if (response.status != 200) {
-		obs_log(LOG_ERROR, "获取更新房间信息失败，状态码: %ld", response.status);
-		message = "获取更新房间信息失败，状态码: " + std::to_string(response.status);
-		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
-		}
+	// 官方拆成两个端点(契约 §4.2/§4.3): 标题/封面 → UpdatePreLiveInfo,
+	// 分区 → AnchorChangeRoomArea。旧 Web 端点 room/v1/Room/update 已于 3.0.2
+	// 移除(不在官方客户端调用集内)。
+	if (!title.empty() && !updatePreLiveInfo(config, title, message))
 		return false;
-	}
-
-	std::string err;
-	json11::Json json = json11::Json::parse(response.data, err);
-	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "更新直播间信息失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+	if (areaId >= 0 && !changeRoomArea(config, areaId, message))
 		return false;
-	}
-
-	obs_log(LOG_INFO, "直播间信息更新成功: %s", title.c_str());
 	return true;
 }
 

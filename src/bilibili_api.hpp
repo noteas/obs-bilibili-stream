@@ -23,12 +23,6 @@ struct Config {
 	int area_id = 86;
 	// 质量协商(§5.4):用户设定的视频码率 kbps;0 = 不干预。应用=写当前视频编码器。
 	int bitrate_kbps = 0;
-	// 隐藏配置(无 UI,手改 config.json):true = 走 Web 老端点
-	// (room_id_by_uid / Room/update),默认 false = 官方端点(契约 §3.1/§4.2/§4.3)。
-	bool use_legacy_endpoints = false;
-	// 上游选点透传(§5.7):非空才随 startLive 注入;插件不做测速本身。
-	std::string recommend_protocol;
-	std::string recommend_ip;
 	// 推流线路(M1/U1):开播响应的 protocols[]/protocols_backup[] 全量保存,
 	// 控制台逐条只读展示(地址与推流码均可复制)。插件**不改** OBS 服务配置,
 	// 用哪条线路、何时切、怎么填 OBS 全由用户决定(ADR-0005)。
@@ -40,21 +34,6 @@ struct Config {
 		bool backup = false; // 来自 protocols_backup[]
 	};
 	std::vector<StreamTarget> stream_targets;
-	// 备流参数探针(隐藏配置,不进 UI):U6 已闭合(E-19,官方恒传 2/"Paylive"),
-	// builder 默认恒注官方值;探针非空时覆盖,保留作实网复核通道。
-	std::string backup_stream_type_probe;
-	std::string stream_biz_probe;
-	// client_traceid 请求头的值(隐藏配置)。官方注入条件=会话 traceid 非空
-	// (F-180146070 `param_10` 判空,E-21);插件此前自造随机 UUID 属虚构数据,
-	// 已改为**默认不发送**。非空时按其值发送,作 70002 实网探针(如 32-hex 形态)。
-	std::string client_traceid_probe;
-	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)
-	std::string rtmp_backup_code;
-	// App OAuth 身份(官方公共参数注入器 FUN_180063f70 每次 app-blink 请求都带
-	// access_key)。access_key 由扫码登录拿到的 refresh_token 经
-	// /api/v2/oauth2/refresh_token 换取;refresh_token 随响应轮换。
-	std::string access_key;
-	std::string refresh_token;
 };
 
 // Endpoints never carry identity arguments: cookies, UA and client_traceid are
@@ -67,35 +46,23 @@ public:
 	static bool getQrCode(std::string &qr_data, std::string &qr_key, std::string &message);
 	// Success = login cookies landed in the session jar (Set-Cookie merge or
 	// the URL-query fallback), not a returned cookie string.
-	// refresh_token: mini-login-v2 扫码成功时 poll 返回的新字段;官方 H5 通过
-	// `auth/setRefreshToken` 交给原生,再换 access_key。旧响应可能为空。
-	static bool qrLogin(const std::string &qr_key, std::string &refresh_token, std::string &message);
-	// App OAuth 身份:用扫码得到的 refresh_token 调
-	// /api/v2/oauth2/refresh_token 换 access_key(access_token)并落 cookie_info。
-	// 成功时更新进程内 access_key;new_refresh_token 为轮换后的值(通常非空)。
-	static bool refreshAccessToken(const std::string &refresh_token, std::string &access_key,
-				       std::string &new_refresh_token, std::string &message);
-	static void setAccessKey(const std::string &access_key);
+	static bool qrLogin(const std::string &qr_key, std::string &message);
 	static bool checkLoginStatus(std::string &message, std::string &mid);
-	// Room bootstrap. Official = app-blink room/GetInfo?uId=<mid> (§3.3; parser
-	// F-1802b3690 reads data.room_id, proven); legacy = room/v2/Room/room_id_by_uid.
-	// With prefer_official, a GetInfo failure logs a warning and falls back to the
-	// legacy endpoint (transparent degradation, no silent endpoint swaps).
-	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
-				     bool prefer_official = true);
+	// Room bootstrap. app-blink room/GetInfo?uId=<mid> (§3.3; parser
+	// F-1802b3690 reads data.room_id, proven). 官方端点失败即失败——旧 Web
+	// 端点 room/v2/Room/room_id_by_uid 的兼容回退已于 3.0.2 移除。
+	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message);
 	static json11::Json getPartitionList(std::string &message);
 	// with_backup=true = 官方同款自动分派(E-22,UI 单「开播」按钮即此模式):
 	// 先查 GetVisibleMode,upower_privilege_type==5 才走备流构造
 	// (F-180146070 参数位: src(E-19/G1,取 get_stream_by_roomId 的
 	// stream_line[].src)+ backup_stream=1 + backup_stream_type=2/stream_biz=
-	// Paylive;探针非空可覆盖);≠5 或查询后无资格则按官方普通开播发送并在
+	// Paylive,3.0.2 起固定官方字面量);≠5 或查询后无资格则按官方普通开播发送并在
 	// message 说明。资格查询失败维持强发+失败回退普通开播兜底。
-	// backup_addr/code 非空则回填 data.protocols_backup[](解析序第7步)。
 	// face_qr 只在服务端给二维码(data.qr)时填充;face_page_url 用于 60043
 	// 的 auth-middle 网页(官方直接开窗口,不是二维码)。
 	static bool startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			      std::string &face_qr, std::string &mid, bool with_backup = false,
-			      std::string *backup_addr = nullptr, std::string *backup_code = nullptr,
 			      std::string *face_page_url = nullptr);
 	static bool stopLive(const Config &config, std::string &message);
 	static bool updateRoomInfo(const Config &config, std::string &message, const std::string &title = "",
