@@ -90,20 +90,7 @@ jobs:
           done
           ls "${root_dir}"
 
-      - name: Generate Checksums 🪪
-        if: fromJSON(steps.check.outputs.validTag)
-        run: |
-          : Generate Checksums 🪪
-          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
-          shopt -s extglob
-
-          echo "### Checksums" > ${{ github.workspace }}/CHECKSUMS.txt
-          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.flatpak|*.tar.xz|*.zip|*.so|*.dll); do
-            echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
-          done
-          root_dir="$(pwd)"
-          ls "${root_dir}"
-
+      # Release 说明不再自动附 sha256 清单:校验和随下载页的 Assets 即可,说明栏留给发布者手写。
       - name: Create Release 🛫
         if: fromJSON(steps.check.outputs.validTag)
         id: create_release
@@ -113,7 +100,6 @@ jobs:
           prerelease: ${{ fromJSON(steps.check.outputs.prerelease) }}
           tag_name: ${{ steps.check.outputs.version }}
           name: ${{ needs.build-project.outputs.pluginName }} ${{ steps.check.outputs.version }}
-          body_path: ${{ github.workspace }}/CHECKSUMS.txt
           files: |
             ${{ github.workspace }}/*.exe
             ${{ github.workspace }}/*.zip
