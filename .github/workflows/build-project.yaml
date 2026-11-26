@@ -200,6 +200,14 @@ jobs:
           echo "pluginName=${product_name}" >> $GITHUB_OUTPUT
           echo "pluginVersion=${product_version}" >> $GITHUB_OUTPUT
 
+      # tmpfs 遮住了镜像预置的 system ostree 库,flathub remote 配置也一并消失
+      # (2026-11-26 tmpfs 首轮验证:flatpak-builder --install-deps-from=flathub
+      # 报 "error: No remote refs found for 'flathub'")。重新登记 remote:
+      # remote-add 是纯本地配置写(写进 tmpfs),无网络无 helper;之后所有
+      # pull/update 读写仍全部落 tmpfs,EXDEV 故障路径依旧封闭。
+      - name: Add flathub Remote 🌐
+        run: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
       - name: Build Flatpak Plugin 🧱
         uses: flatpak/flatpak-github-actions/flatpak-builder@401fe28a8384095fc1531b9d320b292f0ee45adb
         with:
