@@ -44,7 +44,7 @@
 | U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2 已按新模型完成(A0) |
 | U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60);`src`(整数)=startLive `src` 参数唯一来源,经 service 子对象 `vt[0xf8]` 透传(E-19) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
-| U-A | stopLive 60034: 公共参数 `access_key` 已补,扫码 refresh_token → `/api/v2/oauth2/refresh_token` 已实现;待真实扫码确认 poll 带 token、refresh 成功、60034 消失 | 待实网 |
+| U-A | stopLive 60034: **已消解(2026-11-26 实网,生效项=version/platform/build 参数指纹)**;access_key 交换(web refresh_token→oauth2/refresh_token)实测 -101,web→app token 桥接方式待 capture 定 | 部分闭合 |
 
 ## 真实调用测试原则
 
