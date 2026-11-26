@@ -1,11 +1,12 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/BlankSpruce/gersemi/master/gersemi/configuration.schema.json
 
-color: false
+# 注:color/quiet/workers 是 CLI-only 选项,写进 .gersemirc 会让 gersemi 0.21+
+# 打印「these options are supported only through command line」提示;
+# build-aux/run-gersemi 把任何输出行都判为「requires formatting changes」,
+# 造成 CI 误报(2026-11-26 复盘,本地 uvx gersemi==0.21.0 复现)。
 definitions: []
 line_length: 120
 indent: 2
 list_expansion: favour-inlining
-quiet: false
 unsafe: false
-workers: 10
 warn_about_unknown_commands: false
