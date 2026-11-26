@@ -15,14 +15,14 @@ _Avoid_: 开始直播、开始推流、开流
 _Avoid_: 停止直播、关播
 
 **推流 / 停止推流**:
-OBS 自身的输出动作(点 OBS 的"开始直播"按钮,启动 RTMP/SRT 输出)。插件只写入服务配置,永远不代替用户触发此动作。
+OBS 自身的输出动作(点 OBS 的"开始直播"按钮,启动 RTMP/SRT 输出)。插件只展示推流地址与推流码,永远不代替用户触发此动作,也不改写 OBS 的推流配置。
 _Avoid_: 开播、关播(这两个词专指信令轴)
 
 **进行中场次**:
 服务端认为仍在直播、但本地 OBS 未在推的场次(OBS 崩溃/断电后残留)。断流恢复的处置对象。
 
 **断流恢复**:
-检测到自己房间存在进行中场次(§getInfoByUser `live_status==1`)后,经 GetUpStreamRtmp 取回可推地址并重写 OBS 服务配置,使用户点一次推流即可接回原场次。
+检测到自己房间存在进行中场次(§room/GetInfo `live_status==1`)后,经 get_stream_by_roomId / GetUpStreamRtmp 取回可推地址并在控制台展示,由用户填入 OBS 后自行点推流接回原场次。插件不改写 OBS 配置。
 _Avoid_: 重连、断线重连(那是 OBS 输出层重试,不同概念)
 
 ### 推流路
@@ -38,7 +38,7 @@ _Avoid_: 备选地址、切换式(把备流当成同 key 的备用地址是错�
 官方的 multi_screen_* 多房间多画面协同。**明确不做**,代码中不得为它留参数位。
 
 **推流目标(StreamTarget)**:
-一个可推的 {protocol, addr, new_link, provider, key} 组合,是 startLive 响应、恢复响应与 OBS 服务配置之间的统一中间模型。
+一个可推的 {protocol, addr, new_link, provider, key} 组合,是 startLive 响应、恢复响应与线路展示之间的统一中间模型。
 
 ### UI 与集成
 
@@ -51,7 +51,7 @@ _Avoid_: 对话框、弹窗、dock
 _Avoid_: 档位、备选(易与质量档混淆)
 
 **线路展示**:
-把**全部线路**以可复制文本行呈现给用户,由用户在 OBS 里自行填写。插件**不改写** OBS 服务配置(ADR-0005,推翻 ADR-0001 的写回条款)。
+把**全部线路**以可复制文本行呈现给用户,由用户在 OBS 里自行填写。插件**不改写** OBS 服务配置(ADR-0005)。
 _Avoid_: 服务改写、写回、自动填充
 
 ### 协商与控制
@@ -78,7 +78,10 @@ _Avoid_: 选档、档位回执、自动换编码器(注:GetQualityData/QualityCa
 `SESSDATA`/`bili_jct`/`DedeUserID`/`buvid3`/`buvid4` 五键——服务端轮转后唯一回写 config.json 的键;其余服务端 Set-Cookie 只存内存 jar。
 
 **公共参数**:
-每个 app-blink/live 签名请求由注入器统一携带的 ts/version/appkey/platform=pc_link/build 五键(值来自服务端版本接口与常量);Web 域端点(nav、passport)不走这套。UpdatePreLiveInfo 是已证的管线例外:签名只覆盖公共参数。
+每个 app-blink/live 签名请求由注入器统一携带的 ts/version/appkey/platform=pc_link/build/access_key 六键(值来自服务端版本接口、常量与 App OAuth 身份);`nav` 也按官方 builder 携带 appsign;passport 登录 H5 的请求由页面自己处理。UpdatePreLiveInfo 是已证的管线例外:签名只覆盖公共参数。
+
+**App OAuth 身份(access_key)**:
+官方每条 app-blink/startLive/stopLive 请求都带的 `access_key`(=OAuth access_token),由扫码登录 H5 返回的 `refresh_token` 经 `/api/v2/oauth2/refresh_token` 换取并轮换;它是服务端区分“直播姬本体”的身份凭据(stopLive 60034 的判定依据)。插件持久化 refresh_token,启动/登录后自动换 access_key。
 
 **开播信令身份 / 推流数据面**:
-前者 = Cookie+appsign 的 HTTPS 请求(插件负责);后者 = OBS 输出到 addr/key(插件只负责算好并写入)。
+前者 = Cookie+appsign 的 HTTPS 请求(插件负责);后者 = OBS 输出到 addr/key(插件只负责算好并展示,不写 OBS 配置)。

@@ -1,6 +1,6 @@
 # OBS Bilibili Streaming Plugin
 
-A plugin for OBS Studio that simplifies the streaming process on Bilibili platform. Supports QR code login, updating livestream room info, and obtaining RTMP streaming address and key.
+A plugin for OBS Studio that simplifies the streaming process on Bilibili platform. Supports QR code login, updating livestream room info, and obtaining all push lines (RTMP/SRT, primary/backup) with their addresses and stream keys. The plugin only displays these lines and never rewrites OBS configuration.
 
 ## Installation
 
@@ -102,11 +102,11 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
     - Click **应用标题** (Apply title) / **应用分区** (Apply category) to submit.
 
 4. **Start live (open the Bilibili live session)**:
-    - Click **开播** (Go live) in the console; the push URL and stream key appear in the console status area.
-    - In OBS, go to **Settings** → **Stream**, set:
-        - Service: **Custom**
-        - Server: paste the push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-    - Click **Start Streaming** in OBS. The plugin only handles the go-live signalling; starting the actual stream is always your call in OBS (ADR-0001).
+    - Click **开播** (Go live) in the console; **all lines** (primary/backup, protocol/provider, address, stream key) appear in the console and can be copied.
+    - In OBS, go to **Settings** → **Stream**, choose the service that matches the line, and paste:
+        - RTMP line: Service **Custom**, Server = push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
+        - SRT line: Service **SRT**, fill the SRT fields OBS provides
+    - Click **Start Streaming** in OBS. The plugin only handles go-live signalling and line display; it does not modify OBS configuration, and starting the actual stream is always your call (ADR-0005).
 
 5. **Stop**:
     - Stop streaming in OBS first, then click **停播** (End live) in the console to close the Bilibili live room.

@@ -43,13 +43,13 @@ builder(业务参数, 条件注入)
 | `csrf_token` `csrf` | FUN_1804b5330 |
 | `version`(=服务端 curr_version) `build` | 服务基类(值来自 §3.4) |
 | `platform=pc_link` `mobi_app` | app-blink builder |
-| `access_key` | App 身份接口 |
+| `access_key` | **公共参数注入器 FUN_180063f70 恒注**（所有 app-blink/startLive/stopLive；值=App OAuth access_token） |
 
 **注入器实身 = FUN_180063f70**(app-blink/live 签名端点的 builder 序章,反编译实证):
-一次注入 `ts`(=微秒/1e6 的秒值) `version` `appkey` `platform=pc_link` `build`;
-`access_key` 仅 App-OAuth 身份路线携带。**Web 域端点不走此注入器**(§2.9 nav 仅
-ts+appkey+sign;§6.1 stopLive 表无 build/version/platform)。缺公共参数 ⇒ `-400 请求错误`
-(实网实证);带齐时公开端点 `getInfoByRoom` 无登录态即 `code=0`(2026-11-25)。
+一次注入 `ts`(=微秒/1e6 的秒值) `version` `appkey` `platform=pc_link` `build`
+`access_key`。**Web 域端点不走此注入器**(§2.9 nav 仅 ts+appkey+sign)。
+缺公共参数 ⇒ `-400 请求错误`(实网实证);带齐时公开端点 `getInfoByRoom` 无登录态即
+`code=0`(2026-11-25)。stopLive 也走该注入器（E-15）。
 
 **头**:
 ```
@@ -72,7 +72,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
 | 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试) |
-| 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25):web-cookie 身份通道(SESSDATA,含 LiveHime UA+version/build 全套指纹)被拒;官方直播姬走 app OAuth access_key 通道(§2.6/2.7,插件不做)。插件口径=提示「OBS 停止推流,无推流数分钟后服务端自动结束场次」(同日实测空场次确会被掐) |
+| 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。根因=官方公共参数 `FUN_180063f70` 恒带 App OAuth `access_key`，插件旧实现漏发；现已用扫码 `refresh_token` 调 `/api/v2/oauth2/refresh_token` 换取并签名发送，待真实扫码/停播实测（E-15）。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
 
@@ -173,7 +173,7 @@ POST https://passport.bilibili.com/x/passport-login/captcha
 `geetest4` 参数(`support_captcha_types:"geetest4"`)+ 通过后 `captcha_key`。
 
 ### 证据
-- 官方: E-06(JS 内 geetest×56、captcha_key×6、recaptcha×2)。仓库: ❌ 无。
+- 官方: E-06(JS 内 geetest×56、captcha_key×6、recaptcha×2)。仓库: 原生扫码路线不走 captcha（H5 内完成）。
 
 ## 2.6 getkey(App OAuth 路线, 第二条登录路线)
 
@@ -206,8 +206,14 @@ POST https://passport.bilibili.com/api/v3/oauth2/login
 ```
 解析动作: 存 access_token(access_key 路线)+按 domains 直接发 Cookie。
 
+**扫码登录的真实来源(2026-11-26)**：官方 H5 `mini-login-v2` 的 qrcode poll 成功返回
+`data.refresh_token`/`data.timestamp`，H5 通过 CEF 桥 `auth/setRefreshToken` 交给原生；
+原生再用 `/api/v2/oauth2/refresh_token` 换 `data.token_info.access_token`（=公共参数
+`access_key`）与 cookie_info。详见本地逆向档案 E-15（`re/evidence/15-access-key-60034.md`，不入 git）。
+
 ### 证据
 - 官方: E-10 @0x1145f5a/@0x114603b(`data.token_info.*`、`data.cookie_info.cookies/domains` 簇)。
+- refresh 构造/解析：F-1804bf080 / F-1804bf670（E-15）。
 
 ## 2.8 check-auth-token
 
@@ -272,8 +278,7 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 
 **实网更正(2026-11-25,登录态在播中实测)**:getInfoByUser 的 wire 响应**不含**
 `live_status/have_live/lock_*`(全树检索无命中)——解析簇是 common_service 共用键表,
-这些字段的实际供给方是 §3.3 room/GetInfo。仓库登录链房间态已改走 §3.3
-(此前挂本端点导致在播恒显「未开播」)。
+这些字段的实际供给方是 §3.3 room/GetInfo。仓库登录链房间态走 §3.3。
 
 ### 证据
 - 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`,值已钉死);
@@ -342,8 +347,8 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreCheck
 ```
 参数: **无业务参数**(builder F-1804c4c00 指令级:map=公共参数,直接签名;
 旧文「%s 动态格式化」是 URL 模板字样,非参数)。**传输层 = GET**——实网实测
-(2026-11-25 wire)POST 该路径 405 Method Not Allowed;此前「POST」为判读错误,
-csrf 不注入(GET 管线无 csrf,§1 csrf 规则=仅 POST)。
+(2026-11-25 wire)POST 该路径 405 Method Not Allowed;csrf 不注入
+(GET 管线无 csrf,§1 csrf 规则=仅 POST)。
 
 ### 响应(实网实测形状)
 ```
@@ -406,7 +411,7 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 ### 请求
 `preLive/GetRealnameApplyStatus`、`preLive/IsUserIdentifiedByFaceAuth`、`preLive/ReportFaceRecognition`(路径 E-05, 参数 **(未定)**)。
 
-### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 仅事后 60024/60043 出码;60043 中间页**已对齐官方** `auth-middle.html?source_event=200&mid=`(2026-11-25 实网首触 60043 时暴露旧拼法 `face-auth-middle.html?source_event=400` 属错误页面族,已修)。
+### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 60024 二维码、60043 `auth-middle.html?source_event=200&mid=` ✅；`IsUserIdentifiedByFaceAuth`/`GetRealnameApplyStatus` 未单独调用（PreCheck 覆盖实名）。
 
 ---
 
@@ -701,15 +706,21 @@ POST https://api.live.bilibili.com/room/v1/Room/stopLive
 ```
 | 参数 | 说明 | 仓库 |
 |---|---|---|
-| `room_id` | **builder 唯一业务参数** | ✅ `:434` |
-| `csrf_token` `csrf` | 管线注入 | ✅ `:434-435` |
-| `ts` `appkey` `sign` | 管线 | ✅ 仓库签名(room_id/csrf 对/ts 参与) |
-| — | 官方无 `platform`/`version`/`build` | ✅ 仓库不发 |
+| `room_id` | **builder 业务参数** | ✅ |
+| `csrf_token` `csrf` | FUN_1804b5330 注入 | ✅ |
+| `ts` `version` `platform=pc_link` `build` `access_key` | 公共参数注入器 FUN_180063f70 | ✅ |
+| `appkey` `sign` | 管线 | ✅ |
 
 ### 响应
 仅信封: parser F-180148980 只校验 `code/message`, 无 data 字段。
 
-### 证据: builder F-1801482d0(URL xref 0x1801484e0, E-09 §3);仓库 `:432-437`。
+### 60034
+服务端按 App OAuth 身份判定。官方每个 stopLive 都带 `access_key`;插件旧实现漏发,
+故被“仅直播姬可关播”拦截。2026-11-26 已改为用扫码 refresh_token 换 access_key
+并随公共参数签名发送(E-15),待真实扫码/停播实测。
+
+### 证据: builder F-1801482d0(URL xref 0x1801484e0, E-09 §3);公共参数 FUN_180063f70(E-15);
+仓库 `stopLive()` ✅(access_key 已对齐,待实网验证)。
 
 ## 6.2 停播收尾组
 
@@ -730,7 +741,7 @@ POST https://api.live.bilibili.com/room/v1/Room/stopLive
 ```
 GET https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId?room_id=<房号>
 ```
-业务参数仅 `room_id`+sign。
+业务参数仅 `room_id`+sign;公共参数组(`ts/version/platform/build`,注入器 FUN_180063f70)与其他 app-blink 请求一致。
 
 ### 响应(解析器 F-18014cf60 钉死, 2026-11-25)
 ```json
@@ -738,10 +749,10 @@ GET https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId
           "stream_line": [{"src": "…", "cdn_name": "…", "checked": …}]}}
 ```
 `rtmp.{addr,code}` = 进行中场次的推流地址与密钥(断流找回正解);
-`stream_line[]` = CDN 线路表(`src` 字面量 0x181120655 实证)。
+`stream_line[]` = CDN 线路表(`src` 字面量 0x181120655 实证;插件未消费)。
 
 ### 证据: builder FUN_18014bf40(E-09 §12), 派发解析回调 F-18014cf60。
-仓库 `getActiveStream()`(M1b 恢复首选源)。
+仓库 `getActiveStream()`(M1b 恢复首选源;读取 `data.rtmp`,公共参数已注入)。
 
 ## 7.2 GetUpStreamRtmp
 

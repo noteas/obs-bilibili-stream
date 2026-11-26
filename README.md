@@ -1,6 +1,6 @@
 # OBS Bilibili 直播插件
 
-这是一个为 OBS Studio 开发的插件，用于简化在 Bilibili 平台上的直播流程。插件支持扫码登录 Bilibili，更新直播间信息，并获取 RTMP 推流地址和推流码。
+这是一个为 OBS Studio 开发的插件，用于简化在 Bilibili 平台上的直播流程。插件支持扫码登录 Bilibili，更新直播间信息，并获取推流线路（RTMP/SRT，含主/备）的地址与推流码；插件只展示线路，不改写 OBS 配置。
 
 **[English README](README_en.md)**
 
@@ -110,11 +110,11 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
     - 分别点击 **应用标题** / **应用分区** 提交。
 
 4. **开播(打开 B站直播场次)**:
-    - 控制台点击 **开播**;成功后推流地址与推流码显示在控制台状态区。
-    - 在 OBS 中,打开 **设置** → **推流**,设置:
-        - 服务:**自定义**
-        - 服务器:粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-    - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令,推流按钮永远由你在 OBS 点击(ADR-0001)。
+    - 控制台点击 **开播**;成功后**全部线路**(主/备、协议/provider、地址、推流码)显示在控制台,均可选中复制。
+    - 在 OBS 中,打开 **设置** → **推流**,按线路协议选择服务并粘贴地址/推流码:
+        - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
+        - SRT 线路:服务选 SRT,按 OBS 的 SRT 字段填入
+    - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令与线路展示,不改写 OBS 配置,推流按钮永远由你在 OBS 点击(ADR-0005)。
 
 5. **停播**:
     - 先在 OBS 停止推流,再在控制台点击 **停播** 关闭 B站直播间。
