@@ -123,12 +123,10 @@ jobs:
         shell: bash
         run: |
           : Expose Raw Binary (.so)
-          shopt -s globstar nullglob
-          src=(build_x86_64/**/bilibili-stream-for-obs.so)
-          if (( ${#src[@]} )); then
-            cp -f "${src[0]}" \
-              "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64.so"
-            echo "raw binary: ${src[0]}"
+          src="$(find build_x86_64 -name 'bilibili-stream-for-obs.so' -print -quit)"
+          if [ -n "$src" ]; then
+            cp -f "$src" "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64.so"
+            echo "raw binary: $src"
           else
             echo "::warning::raw .so not found"
           fi
