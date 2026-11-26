@@ -47,7 +47,7 @@ jobs:
               fi
               ;;
             workflow_dispatch)
-              config_data=('codesign:true' 'notarize:false' 'package:false' 'config:Release')
+              config_data=('codesign:false' 'notarize:false' 'package:true' 'config:Release')
               ;;
             schedule)
               config_data=('codesign:true' 'notarize:false' 'package:true' 'config:Release')
