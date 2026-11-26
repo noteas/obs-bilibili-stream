@@ -774,9 +774,36 @@ bool on_value_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings
 	return false;
 }
 
+const json11::Json *find_parent(const json11::Json &partitions, int partId);
+
 bool on_part_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings)
 {
 	sync_draft(settings);
+	// 二级下拉框跟随大类(用户报障 2026-11-26):OBS 在 modified 回调返回 true 后
+	// 重建属性表,但 get_properties 只能读到**已提交**的 source 设置(对话框编辑值
+	// 在重建后才经 UpdateSettings 回填控件)⇒ 二级列表条目必须按草稿里的新大类
+	// 重建;且对话框现值若仍指向旧大类的二级条目,须自动切到新大类首个二级并写回
+	// 对话框设置,否则下拉框显示不到位,看似未刷新。
+	if (g_partitions.is_array()) {
+		const json11::Json *parent = find_parent(g_partitions, g_draft_part);
+		int first_area = 0;
+		bool area_valid = false;
+		if (parent) {
+			for (const auto &area : (*parent)["list"].array_items()) {
+				int id = 0;
+				if (!parse_area_id(area["id"], id))
+					continue;
+				if (first_area == 0)
+					first_area = id;
+				if (id == g_draft_area)
+					area_valid = true;
+			}
+		}
+		if (!area_valid && first_area > 0) {
+			obs_data_set_int(settings, KEY_AREA, first_area);
+			g_draft_area = first_area;
+		}
+	}
 	return true; // rebuild the dialog so the sub-area list follows the parent
 }
 
@@ -926,7 +953,11 @@ obs_properties_t *console_properties(void *data)
 		obs_property_list_add_int(partList, placeholder, 0);
 		obs_property_list_add_int(areaList, placeholder, 0);
 	} else {
-		const int wantedPart = static_cast<int>(obs_data_get_int(settings, KEY_PART));
+		// 条目重建以草稿为准(= 对话框当前显示的大类):OBS 重建属性表时
+		// get_properties 读到的是已提交设置(滞后于对话框编辑),草稿由
+		// modified 回调实时同步,与 UpdateSettings 回填后的控件一致。
+		const int wantedPart = g_draft_part > 0 ? g_draft_part
+							: static_cast<int>(obs_data_get_int(settings, KEY_PART));
 		int shownPart = cfg.part_id;
 		for (const auto &item : g_partitions.array_items()) {
 			const int id = part_of_parent(item);
@@ -938,7 +969,8 @@ obs_properties_t *console_properties(void *data)
 			obs_data_set_int(settings, KEY_PART, shownPart);
 
 		const json11::Json *parent = find_parent(g_partitions, shownPart);
-		const int wantedArea = static_cast<int>(obs_data_get_int(settings, KEY_AREA));
+		const int wantedArea = g_draft_area > 0 ? g_draft_area
+							: static_cast<int>(obs_data_get_int(settings, KEY_AREA));
 		int shownArea = cfg.area_id;
 		if (parent) {
 			for (const auto &area : (*parent)["list"].array_items()) {
@@ -1056,8 +1088,20 @@ void ConsoleDestroy()
 
 void ConsoleOpenPanel()
 {
-	if (g_source)
-		obs_frontend_open_source_properties(g_source);
+	if (!g_source)
+		return;
+	// 草稿与已提交设置对齐(上次 OK/取消/异步刷新遗留的草稿不污染本次对话框:
+	// 二级列表条目与下拉选中都以草稿为锚,见 on_part_changed)。无已提交值时回
+	// 落到 config.json(= 属性表注入的默认值)。
+	obs_data_t *s = obs_source_get_settings(g_source);
+	g_draft_title = obs_data_has_user_value(s, KEY_TITLE) ? obs_data_get_string(s, KEY_TITLE)
+							      : g_config.config().title;
+	g_draft_part = obs_data_has_user_value(s, KEY_PART) ? static_cast<int>(obs_data_get_int(s, KEY_PART))
+							    : g_config.config().part_id;
+	g_draft_area = obs_data_has_user_value(s, KEY_AREA) ? static_cast<int>(obs_data_get_int(s, KEY_AREA))
+							    : g_config.config().area_id;
+	obs_data_release(s);
+	obs_frontend_open_source_properties(g_source);
 }
 
 } // namespace UI
