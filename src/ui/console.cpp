@@ -220,8 +220,8 @@ void refresh_login_chain()
 				}
 			}
 			if (result->loggedIn)
-				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(
-					result->roomId, result->csrf, result->message, !legacy);
+				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(result->roomId, result->csrf,
+										 result->message, !legacy);
 			if (result->roomOk) {
 				// SSO 全域传播已提前到交换之前(B3)。
 				if (!legacy) {
@@ -231,17 +231,19 @@ void refresh_login_chain()
 					// live_status 1=直播中 2=轮回;lock_status/lock_time
 					// 为封禁信号。取不到只降级,不断链。
 					std::string stateMessage;
-					json11::Json data =
-						Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
+					json11::Json data = Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
 					if (data.is_object()) {
 						const int live_status = data["live_status"].int_value();
 						result->liveStatus = live_status;
-						const char *state = live_status == 1 ? "直播中" : live_status == 2 ? "轮回" : "未开播";
+						const char *state = live_status == 1   ? "直播中"
+								    : live_status == 2 ? "轮回"
+										       : "未开播";
 						result->roomState = std::string("场次:") + state;
 						if (data["lock_status"].int_value() != 0)
 							result->roomState += ", 锁定中";
 					} else {
-						obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s", stateMessage.c_str());
+						obs_log(LOG_WARNING, "房间态获取失败(不影响登录链): %s",
+							stateMessage.c_str());
 					}
 				}
 			}
@@ -300,9 +302,9 @@ void start_fingerprint_probe()
 			if (!from_config)
 				Bili::BiliApi::fetch_buvid();
 			const std::string b3 = Http::HttpClient::cookie_value("buvid3");
-			obs_log(LOG_INFO, "指纹: UA=%s | traceid=%s | buvid3=%s (%s)",
-				Http::HttpClient::user_agent(), Http::HttpClient::traceid().c_str(),
-				b3.empty() ? "获取失败" : b3.c_str(), from_config ? "来自配置" : "新取");
+			obs_log(LOG_INFO, "指纹: UA=%s | traceid=%s | buvid3=%s (%s)", Http::HttpClient::user_agent(),
+				Http::HttpClient::traceid().c_str(), b3.empty() ? "获取失败" : b3.c_str(),
+				from_config ? "来自配置" : "新取");
 		},
 		nullptr);
 }
@@ -334,13 +336,11 @@ void do_login()
 			const std::string svgPath = module_file("login_qr.svg");
 			if (!svgPath.empty() && Core::QrGenerator::writeSvgFile(svgPath, qrData) &&
 			    Core::openInBrowser(svgPath)) {
-				Http::HttpClient::postToUi(guarded([]() {
-					set_status(LEVEL_INFO, "二维码已在浏览器打开,等待扫码确认…");
-				}));
+				Http::HttpClient::postToUi(guarded(
+					[]() { set_status(LEVEL_INFO, "二维码已在浏览器打开,等待扫码确认…"); }));
 			} else if (Core::openInBrowser(qrData)) {
-				Http::HttpClient::postToUi(guarded([]() {
-					set_status(LEVEL_INFO, "登录链接已在浏览器打开,等待确认…");
-				}));
+				Http::HttpClient::postToUi(
+					guarded([]() { set_status(LEVEL_INFO, "登录链接已在浏览器打开,等待确认…"); }));
 			} else {
 				result->message = "无法打开浏览器,请手动访问: " + qrData;
 				return;
@@ -365,9 +365,8 @@ void do_login()
 				if (pollMsg != lastMessage) {
 					lastMessage = pollMsg;
 					std::string shown = pollMsg;
-					Http::HttpClient::postToUi(guarded([shown]() {
-						set_status(LEVEL_INFO, "登录轮询: " + shown);
-					}));
+					Http::HttpClient::postToUi(
+						guarded([shown]() { set_status(LEVEL_INFO, "登录轮询: " + shown); }));
 				}
 			}
 			result->message = "二维码已过期,请重新点击扫码登录";
@@ -432,12 +431,12 @@ void do_recover_stream()
 				return;
 			}
 			if (!canChange || urls.empty()) {
-				result->message = "服务端不提供可推地址" +
-						  (upMessage.empty() ? "" : ": " + upMessage);
+				result->message = "服务端不提供可推地址" + (upMessage.empty() ? "" : ": " + upMessage);
 				return;
 			}
 			if (config.rtmp_code.empty()) {
-				result->message = "GetUpStreamRtmp 给出地址但本地无留存推流码,无法恢复密钥;请开播一次或手工填写";
+				result->message =
+					"GetUpStreamRtmp 给出地址但本地无留存推流码,无法恢复密钥;请开播一次或手工填写";
 				return;
 			}
 			result->addr = urls[0];
@@ -457,13 +456,12 @@ void do_recover_stream()
 			cfg.rtmp_code = result->code;
 			// 找回成功只落到展示线路表,不碰 OBS 配置。
 			cfg.stream_targets.clear();
-			cfg.stream_targets.push_back(Bili::Config::StreamTarget{
-				"rtmp", "", result->addr, result->code, false});
+			cfg.stream_targets.push_back(
+				Bili::Config::StreamTarget{"rtmp", "", result->addr, result->code, false});
 			g_config.save();
 			g_session_in_progress = false;
-			set_status(LEVEL_INFO,
-				   "已找回进行中场次(来源: " + result->source +
-					   "),推流地址已展示(可复制),请手动填入 OBS 后点\"开始直播\"");
+			set_status(LEVEL_INFO, "已找回进行中场次(来源: " + result->source +
+						       "),推流地址已展示(可复制),请手动填入 OBS 后点\"开始直播\"");
 		}));
 }
 
@@ -508,9 +506,9 @@ void do_start_live()
 			// startLive 内先查 GetVisibleMode——upower_privilege_type==5 才发
 			// 备流三参请求,否则自动按官方普通开播发送;原因经 message 上抛
 			// (成功分支以提示形式展示),UI 不再提供单独的备流开播按钮。
-			result->ok = Bili::BiliApi::startLive(
-				config, result->addr, result->code, result->message, result->faceQr, result->mid,
-				true, &result->backupAddr, &result->backupCode, &result->facePage);
+			result->ok = Bili::BiliApi::startLive(config, result->addr, result->code, result->message,
+							      result->faceQr, result->mid, true, &result->backupAddr,
+							      &result->backupCode, &result->facePage);
 			// startLive 把 protocols[]/protocols_backup[] 全量写进 config 的副本;
 			// 必须带回 UI 线程,否则成功分支会把 stream_targets 覆盖成空表。
 			result->targets = config.stream_targets;
@@ -533,26 +531,26 @@ void do_start_live()
 				const size_t n = cfg.stream_targets.size();
 				// message 在成功分支只承载「备流自动判定」类提示
 				// (无资格已按普通发送 / 备流被拒已回退)。
-				set_status(result->message.empty() ? LEVEL_INFO : LEVEL_WARNING,
-					   "开播成功,已获取 " + std::to_string(n) +
-						   " 条推流线路(地址/推流码可复制);插件未修改 OBS 配置,请手动填入 OBS 推流设置后点\"开始直播\"" +
-						   (result->message.empty() ? "" : " — " + result->message));
+				set_status(
+					result->message.empty() ? LEVEL_INFO : LEVEL_WARNING,
+					"开播成功,已获取 " + std::to_string(n) +
+						" 条推流线路(地址/推流码可复制);插件未修改 OBS 配置,请手动填入 OBS 推流设置后点\"开始直播\"" +
+						(result->message.empty() ? "" : " — " + result->message));
 			} else if (!result->facePage.empty()) {
 				// 60043: auth-middle 是网页不是二维码,按官方直接开认证窗口。
 				const bool shown = Core::openInBrowser(result->facePage);
-				set_status(LEVEL_WARNING,
-					   shown ? "需要人脸认证:认证页已在浏览器打开,完成后重新开播"
-						 : "需要人脸认证,请手动访问: " + result->facePage);
+				set_status(LEVEL_WARNING, shown ? "需要人脸认证:认证页已在浏览器打开,完成后重新开播"
+								: "需要人脸认证,请手动访问: " + result->facePage);
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
 				// channel as the login QR.
 				const std::string svgPath = module_file("face_qr.svg");
-				bool shown = (!svgPath.empty() && Core::QrGenerator::writeSvgFile(svgPath, result->faceQr) &&
-					      Core::openInBrowser(svgPath)) ||
-					     Core::openInBrowser(result->faceQr);
-				set_status(LEVEL_WARNING,
-					   shown ? "需要人脸认证:二维码已在浏览器打开,完成后重新开播"
-						 : "需要人脸认证,请手动访问: " + result->faceQr);
+				bool shown =
+					(!svgPath.empty() && Core::QrGenerator::writeSvgFile(svgPath, result->faceQr) &&
+					 Core::openInBrowser(svgPath)) ||
+					Core::openInBrowser(result->faceQr);
+				set_status(LEVEL_WARNING, shown ? "需要人脸认证:二维码已在浏览器打开,完成后重新开播"
+								: "需要人脸认证,请手动访问: " + result->faceQr);
 			} else {
 				set_status(LEVEL_ERROR, "开播失败: " + result->message);
 			}
@@ -565,8 +563,7 @@ void do_stop_live()
 	// 插件不驱动 OBS 输出(ADR-0001/0005),因此推流仍在进行时先提示用户
 	// 在 OBS 停止推流,避免房间已关而画面上传仍在继续。
 	if (obs_frontend_streaming_active()) {
-		set_status(LEVEL_WARNING,
-			   "请先在 OBS 点击「停止推流」,再点「停播」(官方顺序:先停流再停播)");
+		set_status(LEVEL_WARNING, "请先在 OBS 点击「停止推流」,再点「停播」(官方顺序:先停流再停播)");
 		return;
 	}
 	if (!begin_action("停播"))
@@ -577,23 +574,23 @@ void do_stop_live()
 		std::string message;
 	};
 	auto result = std::make_shared<StopResult>();
-	Http::HttpClient::runAsync(
-		[config, result]() { result->ok = Bili::BiliApi::stopLive(config, result->message); },
-		guarded([result]() {
-			end_action();
-			if (result->ok) {
-				g_config.config().streaming = false;
-				g_session_in_progress = false; // 服务端已停播,恢复入口关闭
-				// 场次结束,线路与密钥随场次作废(密钥每场新生成)。
-				g_config.config().rtmp_backup_addr.clear();
-				g_config.config().rtmp_backup_code.clear();
-				g_config.config().stream_targets.clear();
-				g_config.save();
-				set_status(LEVEL_INFO, "已停播");
-			} else {
-				set_status(LEVEL_ERROR, "停播失败: " + result->message);
-			}
-		}));
+	Http::HttpClient::runAsync([config,
+				    result]() { result->ok = Bili::BiliApi::stopLive(config, result->message); },
+				   guarded([result]() {
+					   end_action();
+					   if (result->ok) {
+						   g_config.config().streaming = false;
+						   g_session_in_progress = false; // 服务端已停播,恢复入口关闭
+						   // 场次结束,线路与密钥随场次作废(密钥每场新生成)。
+						   g_config.config().rtmp_backup_addr.clear();
+						   g_config.config().rtmp_backup_code.clear();
+						   g_config.config().stream_targets.clear();
+						   g_config.save();
+						   set_status(LEVEL_INFO, "已停播");
+					   } else {
+						   set_status(LEVEL_ERROR, "停播失败: " + result->message);
+					   }
+				   }));
 }
 
 // M2 质量协商(§5.4/§5.5 实证模型):拉推荐码率+干预标志+编码能力,展示用。
@@ -621,9 +618,9 @@ void do_fetch_quality()
 				const int default_bitrate = (int)bc["default_bitrate"].number_value();
 				int recommend = default_bitrate;
 				std::string source = "=默认(本分区无干预)";
-				for (const auto &tier : bc["recommend_bitrate_area_intervention"]
-							     ["recommend_bitrate_area_v2_interventions"]
-							     .array_items()) {
+				for (const auto &tier :
+				     bc["recommend_bitrate_area_intervention"]["recommend_bitrate_area_v2_interventions"]
+					     .array_items()) {
 					bool hit = false;
 					for (const auto &area : tier["area_v2_ids"].array_items())
 						if (area.int_value() == area_id) {
@@ -636,13 +633,12 @@ void do_fetch_quality()
 						break;
 					}
 				}
-				result->lines = "推荐码率: " + std::to_string(recommend) + " kbps (" + source +
-						  "), 默认: " + std::to_string(default_bitrate) +
-						  " kbps\n会员码率干预: " +
-						  (bc["recommend_bitrate_member_intervention"].bool_value() ? "有"
-													       : "无") +
-						  "\n说明: 官方推荐值是建议,不是推流上限;未设置二级分区时按默认值。" +
-						  "实际视频码率请在 OBS 编码器设置中自行配置。";
+				result->lines =
+					"推荐码率: " + std::to_string(recommend) + " kbps (" + source +
+					"), 默认: " + std::to_string(default_bitrate) + " kbps\n会员码率干预: " +
+					(bc["recommend_bitrate_member_intervention"].bool_value() ? "有" : "无") +
+					"\n说明: 官方推荐值是建议,不是推流上限;未设置二级分区时按默认值。" +
+					"实际视频码率请在 OBS 编码器设置中自行配置。";
 			} else {
 				result->lines = "推荐码率: 获取失败(" + message + ")";
 			}
@@ -650,7 +646,7 @@ void do_fetch_quality()
 			bool canH265 = false, canAv1 = false;
 			if (Bili::BiliApi::canUseH265Encoder(canH265, message))
 				result->lines += "\nH265 服务端许可: " + std::string(canH265 ? "是" : "否") +
-						  "(受官方客户端身份/分区影响;本地硬件以 OBS 编码器列表为准)";
+						 "(受官方客户端身份/分区影响;本地硬件以 OBS 编码器列表为准)";
 			else
 				result->lines += "\nH265 查询失败: " + message;
 			if (Bili::BiliApi::canUseAv1Encoder(canAv1, message))
@@ -681,7 +677,9 @@ void do_apply_title()
 	};
 	auto result = std::make_shared<TitleResult>();
 	Http::HttpClient::runAsync(
-		[config, title, result]() { result->ok = Bili::BiliApi::updateRoomInfo(config, result->message, title, -1); },
+		[config, title, result]() {
+			result->ok = Bili::BiliApi::updateRoomInfo(config, result->message, title, -1);
+		},
 		guarded([title, result]() {
 			end_action();
 			if (result->ok) {
@@ -711,7 +709,9 @@ void do_apply_partition()
 	};
 	auto result = std::make_shared<PartResult>();
 	Http::HttpClient::runAsync(
-		[config, areaId, result]() { result->ok = Bili::BiliApi::updateRoomInfo(config, result->message, "", areaId); },
+		[config, areaId, result]() {
+			result->ok = Bili::BiliApi::updateRoomInfo(config, result->message, "", areaId);
+		},
 		guarded([areaId, partId, result]() {
 			end_action();
 			if (result->ok) {
@@ -736,14 +736,13 @@ void ensure_partitions_loaded()
 		std::string message;
 	};
 	auto result = std::make_shared<ListResult>();
-	Http::HttpClient::runAsync(
-		[result]() { result->data = Bili::BiliApi::getPartitionList(result->message); },
-		guarded([result]() {
-			g_partitions_loading = false;
-			g_partitions = result->data;
-			g_partitions_tried = result->data.is_array();
-			refresh_props();
-		}));
+	Http::HttpClient::runAsync([result]() { result->data = Bili::BiliApi::getPartitionList(result->message); },
+				   guarded([result]() {
+					   g_partitions_loading = false;
+					   g_partitions = result->data;
+					   g_partitions_tried = result->data.is_array();
+					   refresh_props();
+				   }));
 }
 
 void open_live_room()
@@ -869,8 +868,7 @@ obs_property_t *add_action_button(obs_properties_t *props, const char *name, con
 				  bool enabled)
 {
 	obs_property_t *prop = obs_properties_add_button2(
-		props, name, text,
-		+[](obs_properties_t *p, obs_property_t *b, void *d) { return on_button(p, b, d); },
+		props, name, text, +[](obs_properties_t *p, obs_property_t *b, void *d) { return on_button(p, b, d); },
 		reinterpret_cast<void *>(action));
 	obs_property_set_enabled(prop, enabled);
 	return prop;
@@ -879,9 +877,9 @@ obs_property_t *add_action_button(obs_properties_t *props, const char *name, con
 obs_property_t *add_status_line(obs_properties_t *props, const char *name, const std::string &text, int level)
 {
 	obs_property_t *prop = obs_properties_add_text(props, name, text.c_str(), OBS_TEXT_INFO);
-	obs_property_text_set_info_type(
-		prop, level == LEVEL_ERROR ? OBS_TEXT_INFO_ERROR : (level == LEVEL_WARNING ? OBS_TEXT_INFO_WARNING
-											   : OBS_TEXT_INFO_NORMAL));
+	obs_property_text_set_info_type(prop, level == LEVEL_ERROR ? OBS_TEXT_INFO_ERROR
+								   : (level == LEVEL_WARNING ? OBS_TEXT_INFO_WARNING
+											     : OBS_TEXT_INFO_NORMAL));
 	return prop;
 }
 
@@ -910,13 +908,12 @@ obs_properties_t *console_properties(void *data)
 			cfg.login_status ? ("登录状态: 已登录 (mid=" + cfg.mid + ")") : std::string("登录状态: 未登录"),
 			cfg.login_status ? LEVEL_INFO : LEVEL_WARNING);
 	// 扫码登录与登录态成对:未登录时是主入口,已登录时降级为换号动作。
-	add_action_button(props, "btn_login",
-			  cfg.login_status ? "重新扫码登录(换号)" : "扫码登录(在浏览器打开二维码)", ACT_LOGIN,
-			  !g_busy);
+	add_action_button(props, "btn_login", cfg.login_status ? "重新扫码登录(换号)" : "扫码登录(在浏览器打开二维码)",
+			  ACT_LOGIN, !g_busy);
 	add_action_button(props, "btn_refresh", "刷新登录态与房间信息", ACT_REFRESH, !g_busy);
 	if (!cfg.room_id.empty()) {
-		obs_properties_add_text(props, "st_room",
-					("房间: " + cfg.room_id + "  标题: " + cfg.title).c_str(), OBS_TEXT_INFO);
+		obs_properties_add_text(props, "st_room", ("房间: " + cfg.room_id + "  标题: " + cfg.title).c_str(),
+					OBS_TEXT_INFO);
 		add_action_button(props, "btn_open_room", "在浏览器打开B站直播间", ACT_OPEN_ROOM, true);
 	}
 
@@ -929,25 +926,23 @@ obs_properties_t *console_properties(void *data)
 		int idx = 0;
 		for (const auto &t : cfg.stream_targets) {
 			++idx;
-			const std::string label = std::string(t.backup ? "备流" : "主线路") +
-						  std::to_string(idx) + " · " + t.protocol +
-						  (t.provider.empty() ? "" : "/" + t.provider);
+			const std::string label = std::string(t.backup ? "备流" : "主线路") + std::to_string(idx) +
+						  " · " + t.protocol + (t.provider.empty() ? "" : "/" + t.provider);
 			const std::string addr_id = "cp_addr_" + std::to_string(idx);
-			obs_properties_add_text(props, addr_id.c_str(),
-						(label + " 地址(可复制)").c_str(), OBS_TEXT_DEFAULT);
+			obs_properties_add_text(props, addr_id.c_str(), (label + " 地址(可复制)").c_str(),
+						OBS_TEXT_DEFAULT);
 			obs_data_set_default_string(settings, addr_id.c_str(), t.addr.c_str());
 			if (!t.key.empty()) {
 				const std::string key_id = "cp_key_" + std::to_string(idx);
-				obs_properties_add_text(props, key_id.c_str(),
-							(label + " 推流码(可复制)").c_str(), OBS_TEXT_DEFAULT);
+				obs_properties_add_text(props, key_id.c_str(), (label + " 推流码(可复制)").c_str(),
+							OBS_TEXT_DEFAULT);
 				obs_data_set_default_string(settings, key_id.c_str(), t.key.c_str());
 			}
 		}
 	}
 
 	// --- 直播间设置 ---
-	obs_property_t *title =
-		obs_properties_add_text(props, KEY_TITLE, "直播间标题", OBS_TEXT_DEFAULT);
+	obs_property_t *title = obs_properties_add_text(props, KEY_TITLE, "直播间标题", OBS_TEXT_DEFAULT);
 	obs_property_set_enabled(title, !g_busy);
 	obs_property_set_modified_callback(title, on_value_changed);
 	add_action_button(props, "btn_apply_title", "应用标题", ACT_APPLY_TITLE, !g_busy);
@@ -1019,9 +1014,8 @@ obs_properties_t *console_properties(void *data)
 				  g_session_in_progress);
 	// 残留场次清理(真实停播信令):与恢复同场景互斥展示,两段式确认。
 	if (g_session_in_progress && !cfg.streaming)
-		add_action_button(props, "btn_end_session",
-				  g_confirm_end_session ? "确认结束场次!" : "结束进行中场次", ACT_END_SESSION,
-				  !g_busy && cfg.login_status && !cfg.room_id.empty());
+		add_action_button(props, "btn_end_session", g_confirm_end_session ? "确认结束场次!" : "结束进行中场次",
+				  ACT_END_SESSION, !g_busy && cfg.login_status && !cfg.room_id.empty());
 
 	obs_data_release(settings);
 	return props;
@@ -1039,13 +1033,17 @@ obs_source_info *ConsoleSourceInfo()
 		g_console_info.id = CONSOLE_ID;
 		g_console_info.type = OBS_SOURCE_TYPE_INPUT;
 		g_console_info.output_flags = 0; // never rendered, never in a scene
-		g_console_info.get_name = [](void *) -> const char * { return "B站直播控制台"; };
+		g_console_info.get_name = [](void *) -> const char * {
+			return "B站直播控制台";
+		};
 		g_console_info.create = [](obs_data_t *, obs_source_t *source) -> void * {
 			// OBS 32 property callbacks only receive the source's `data`
 			// pointer, so the source handle itself is stashed here.
 			return new ConsoleCtx{source};
 		};
-		g_console_info.destroy = [](void *data) { delete static_cast<ConsoleCtx *>(data); };
+		g_console_info.destroy = [](void *data) {
+			delete static_cast<ConsoleCtx *>(data);
+		};
 		g_console_info.get_properties = console_properties;
 	}
 	return &g_console_info;
