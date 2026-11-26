@@ -113,7 +113,7 @@
       "generator": "Ninja",
       "warnings": {"dev": true, "deprecated": true},
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_LIBDIR": "lib/CMAKE_SYSTEM_PROCESSOR-linux-gnu"
       }
     },
@@ -123,7 +123,7 @@
       "displayName": "Ubuntu x86_64 CI build",
       "description": "Build for Ubuntu x86_64 on CI",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_COMPILE_WARNING_AS_ERROR": true,
         "ENABLE_CCACHE": true
       }
@@ -135,56 +135,56 @@
       "configurePreset": "macos",
       "displayName": "macOS Universal",
       "description": "macOS build for Universal architectures",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "macos-ci",
       "configurePreset": "macos-ci",
       "displayName": "macOS Universal CI",
       "description": "macOS CI build for Universal architectures",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "macos-x86_64",
       "configurePreset": "macos-x86_64",
       "displayName": "macOS x86_64",
       "description": "macOS build for Intel x86_64",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "macos-ci-x86_64",
       "configurePreset": "macos-ci-x86_64",
       "displayName": "macOS x86_64 CI",
       "description": "macOS CI build for Intel x86_64",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "windows-x64",
       "configurePreset": "windows-x64",
       "displayName": "Windows x64",
       "description": "Windows build for x64",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "windows-ci-x64",
       "configurePreset": "windows-ci-x64",
       "displayName": "Windows x64 CI",
-      "description": "Windows CI build for x64 (RelWithDebInfo configuration)",
-      "configuration": "RelWithDebInfo"
+      "description": "Windows CI build for x64 (Release configuration)",
+      "configuration": "Release"
     },
     {
       "name": "ubuntu-x86_64",
       "configurePreset": "ubuntu-x86_64",
       "displayName": "Ubuntu x86_64",
       "description": "Ubuntu build for x86_64",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     },
     {
       "name": "ubuntu-ci-x86_64",
       "configurePreset": "ubuntu-ci-x86_64",
       "displayName": "Ubuntu x86_64 CI",
       "description": "Ubuntu CI build for x86_64",
-      "configuration": "RelWithDebInfo"
+      "configuration": "Release"
     }
   ]
 }

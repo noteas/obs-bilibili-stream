@@ -53,7 +53,7 @@ package() {
 
   local -i debug=0
 
-  local config='RelWithDebInfo'
+  local config='Release'
   local -r -a _valid_configs=(Debug RelWithDebInfo Release MinSizeRel)
 
   local -i codesign=0

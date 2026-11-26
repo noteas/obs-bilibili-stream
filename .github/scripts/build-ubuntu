@@ -56,7 +56,7 @@ build() {
     ubuntu-x86_64
   )
   local target
-  local config='RelWithDebInfo'
+  local config='Release'
   local -r -a _valid_configs=(Debug RelWithDebInfo Release MinSizeRel)
   local -i codesign=0
 

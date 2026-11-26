@@ -7,7 +7,7 @@ inputs:
   config:
     description: Build configuration
     required: false
-    default: RelWithDebInfo
+    default: Release
   codesign:
     description: Enable codesigning (macOS only)
     required: false
