@@ -71,7 +71,8 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | -101 | 未登录 → 登录流程 |
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
-| 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验** |
+| 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验**(2026-11-26 复验:伴参补齐后转 70002,见下行) |
+| 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验 |
 | 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。根因=官方公共参数 `FUN_180063f70` 恒带 App OAuth `access_key`，插件旧实现漏发；现已用扫码 `refresh_token` 调 `/api/v2/oauth2/refresh_token` 换取并签名发送，待真实扫码/停播实测（E-15）。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
@@ -441,7 +442,7 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `backup_stream` | 备流 builder(F-180146070) | `itoa(param_8)`(builder 第 8 参,指令实证) | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
 | `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ✅ 默认恒注 `2`;探针 `backup_stream_type_probe` 非空可覆盖(实网复核) |
 | `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ✅ 默认恒注 `Paylive`;探针 `stream_biz_probe` 非空可覆盖(插件不做教室房) |
-| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ❌(官方普通路径 param_6≠0 时不发;仓库恒发 checked 亦为可接受超集) |
+| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):开播(含备流)先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。注:官方 `RequestStartLive` 恒走备流 builder(U6)⇒ 官方普通开播**也恒带** src+备流三参;仓库「开播」=标准 builder 形态(实网兼容已证),是否收敛到官方恒带形态待定 |
 | `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |

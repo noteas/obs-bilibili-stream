@@ -824,7 +824,41 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 									 {"area_v2", std::to_string(config.area_id)},
 									 {"checked", "0"},
 									 {"type", "1"}};
+	// 官方备流 builder 恒带 src(E-19/G1):值 = get_stream_by_roomId 响应
+	// data.stream_line[].src,原样透传;服务端用它定位备流落点线路。
+	// 实网观测 2026-11-26:缺伴参→70003,带伴参但无 src→70002,同会话普通
+	// 开播始终成功 ⇒ 备流地址分配依赖 src。选取规则:checked!=0 条目优先,
+	// 无则首条(官方 service 子对象只存单个 src,即选中线路)。取不到=告警
+	// +无 src 发送(等价已知现状,不阻断)。
 	if (with_backup) {
+		std::string streamMsg;
+		const json11::Json lines =
+			getActiveStream(config.room_id, streamMsg)["stream_line"];
+		// src 值域已定为数字(G1),防御性兼容字符串:原样透传,不猜。
+		auto src_of = [](const json11::Json &line) {
+			const json11::Json s = line["src"];
+			return s.is_string() ? s.string_value() : s.dump();
+		};
+		for (size_t i = 0; i < lines.array_items().size(); i++) {
+			const json11::Json &line = lines.array_items()[i];
+			obs_log(LOG_INFO, "stream_line[%zu]: name=%s cdn_name=%s src=%s checked=%d", i,
+				line["name"].string_value().c_str(), line["cdn_name"].string_value().c_str(),
+				src_of(line).c_str(), line["checked"].bool_value() ? 1 : 0);
+		}
+		std::string src_value;
+		for (const auto &line : lines.array_items()) {
+			if (line["checked"].bool_value() && src_of(line) != "null") {
+				src_value = src_of(line);
+				break;
+			}
+		}
+		if (src_value.empty() && !lines.array_items().empty() && src_of(lines.array_items()[0]) != "null")
+			src_value = src_of(lines.array_items()[0]);
+		if (src_value.empty())
+			obs_log(LOG_WARNING, "stream_line 取不到 src(%s),备流请求将不带 src 发送(已知形态=70002)",
+				streamMsg.c_str());
+		else
+			start_params.push_back({"src", src_value});
 		start_params.push_back({"backup_stream", "1"});
 		// U6 已闭合(E-19):官方备流 builder 恒传 param_9=2、param_10="Paylive"
 		// (教室房 "ClassRoom",插件不做教室房)⇒ 默认恒注对齐。
