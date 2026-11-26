@@ -41,7 +41,6 @@ enum Action : uintptr_t {
 	ACT_RECOVER,
 	ACT_END_SESSION,
 	ACT_FETCH_QUALITY,
-	ACT_APPLY_BITRATE,
 	ACT_OPEN_ROOM,
 };
 
@@ -61,7 +60,6 @@ struct ConsoleCtx {
 constexpr const char *KEY_TITLE = "room_title";
 constexpr const char *KEY_PART = "room_part";
 constexpr const char *KEY_AREA = "room_area";
-constexpr const char *KEY_BITRATE = "video_bitrate_kbps";
 
 bool g_alive = false;
 obs_source_t *g_source = nullptr;
@@ -85,7 +83,6 @@ bool g_partitions_tried = false;
 std::string g_draft_title;
 int g_draft_part = 0;
 int g_draft_area = 0;
-int g_draft_bitrate = 0;
 // §5.4/§5.5 拉取结果的多行展示(推荐码率/干预/编码能力),空=未拉取。
 std::string g_quality_info;
 
@@ -635,18 +632,21 @@ void do_fetch_quality()
 						  "), 默认: " + std::to_string(default_bitrate) +
 						  " kbps\n会员码率干预: " +
 						  (bc["recommend_bitrate_member_intervention"].bool_value() ? "有"
-													       : "无");
+													       : "无") +
+						  "\n说明: 官方推荐值是建议,不是推流上限;未设置二级分区时按默认值。" +
+						  "实际视频码率请在 OBS 编码器设置中自行配置。";
 			} else {
 				result->lines = "推荐码率: 获取失败(" + message + ")";
 			}
 			// 编码能力各自降级,不互相牵连。
 			bool canH265 = false, canAv1 = false;
 			if (Bili::BiliApi::canUseH265Encoder(canH265, message))
-				result->lines += "\nH265 可用: " + std::string(canH265 ? "是" : "否");
+				result->lines += "\nH265 服务端许可: " + std::string(canH265 ? "是" : "否") +
+						  "(受官方客户端身份/分区影响;本地硬件以 OBS 编码器列表为准)";
 			else
 				result->lines += "\nH265 查询失败: " + message;
 			if (Bili::BiliApi::canUseAv1Encoder(canAv1, message))
-				result->lines += " | AV1 硬编可用: " + std::string(canAv1 ? "是" : "否");
+				result->lines += " | AV1 服务端许可: " + std::string(canAv1 ? "是" : "否");
 			else
 				result->lines += " | AV1 查询失败: " + message;
 		},
@@ -655,54 +655,6 @@ void do_fetch_quality()
 			g_quality_info = result->lines;
 			set_status(LEVEL_INFO, "质量口径已更新");
 		}));
-}
-
-// 只写码率、不动编码器类型(GLOSSARY 质量协商边界)。输出活动与否都允许
-// (bitrate 属可动态更新的编码参数);找不到流输出时仅提示。主线程。
-bool apply_bitrate_to_current_encoder(int kbps, std::string &message)
-{
-	obs_output_t *output = obs_frontend_get_streaming_output();
-	if (!output) {
-		message = "当前没有流输出实例(设置页确认已选择推流服务)";
-		return false;
-	}
-	obs_encoder_t *encoder = obs_output_get_video_encoder(output);
-	obs_output_release(output);
-	if (!encoder) {
-		message = "找不到当前视频编码器";
-		return false;
-	}
-	obs_data_t *encSettings = obs_encoder_get_settings(encoder);
-	obs_data_set_int(encSettings, "bitrate", kbps);
-	obs_encoder_update(encoder, encSettings); // void;生效与否以下面回读为准
-	obs_data_release(encSettings);
-	obs_data_t *check = obs_encoder_get_settings(encoder);
-	const bool updated = (int)obs_data_get_int(check, "bitrate") == kbps;
-	obs_data_release(check);
-	obs_log(LOG_INFO, "质量协商: 视频码率写 %d kbps → 编码器 %s(%s)", kbps,
-		obs_encoder_get_name(encoder), obs_encoder_get_id(encoder));
-	if (!updated) {
-		message = "编码器拒绝了码率更新";
-		return false;
-	}
-	return true;
-}
-
-void do_apply_bitrate()
-{
-	const int kbps = g_draft_bitrate;
-	if (kbps <= 0) {
-		set_status(LEVEL_WARNING, "码率为空或为 0,未应用");
-		return;
-	}
-	std::string message;
-	if (!apply_bitrate_to_current_encoder(kbps, message)) {
-		set_status(LEVEL_ERROR, "应用码率失败: " + message);
-		return;
-	}
-	g_config.config().bitrate_kbps = kbps;
-	g_config.save();
-	set_status(LEVEL_INFO, "已应用视频码率 " + std::to_string(kbps) + " kbps(仅码率,编码器类型不变)");
 }
 
 void do_apply_title()
@@ -809,7 +761,6 @@ void sync_draft(obs_data_t *settings)
 	g_draft_title = obs_data_get_string(settings, KEY_TITLE);
 	g_draft_part = static_cast<int>(obs_data_get_int(settings, KEY_PART));
 	g_draft_area = static_cast<int>(obs_data_get_int(settings, KEY_AREA));
-	g_draft_bitrate = static_cast<int>(obs_data_get_int(settings, KEY_BITRATE));
 }
 
 bool on_value_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings)
@@ -865,9 +816,6 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 		break;
 	case ACT_FETCH_QUALITY:
 		do_fetch_quality();
-		break;
-	case ACT_APPLY_BITRATE:
-		do_apply_bitrate();
 		break;
 	case ACT_OPEN_ROOM:
 		open_live_room();
@@ -1007,16 +955,11 @@ obs_properties_t *console_properties(void *data)
 	add_action_button(props, "btn_apply_partition", "应用分区", ACT_APPLY_PARTITION, !g_busy);
 
 	// --- 质量协商(§5.4:官方口径=推荐/默认码率+干预,无档位/无回执) ---
-	obs_data_set_default_int(settings, KEY_BITRATE, cfg.bitrate_kbps);
+	// 只读展示:插件不改写 OBS 配置,视频码率由用户在 OBS 编码器设置里自行配置(ADR-0005)。
 	if (!g_quality_info.empty())
 		obs_properties_add_text(props, "st_quality", g_quality_info.c_str(), OBS_TEXT_INFO);
 	add_action_button(props, "btn_fetch_quality", "拉取推荐码率与编码能力", ACT_FETCH_QUALITY,
 			  !g_busy && cfg.login_status && !cfg.use_legacy_endpoints);
-	obs_property_t *bitrate = obs_properties_add_int(props, KEY_BITRATE, "视频码率 (kbps, 0=不干预)", 0,
-							 100000, 50);
-	obs_property_set_enabled(bitrate, !g_busy);
-	obs_property_set_modified_callback(bitrate, on_value_changed);
-	add_action_button(props, "btn_apply_bitrate", "应用码率(只写码率)", ACT_APPLY_BITRATE, !g_busy);
 
 	// --- 开播/停播 ---
 	add_action_button(props, "btn_start_live", "开播", ACT_START_LIVE,

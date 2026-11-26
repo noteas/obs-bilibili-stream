@@ -654,7 +654,7 @@ recommend_bitrate_member_intervention, recommend_bitrate_area_intervention}`、
 
 ### 证据: builder F-1802d40f0;解析器 F-1802d5060。
 仓库 ✅ `videoQualityConfig()`(按实网形状解析:干预列表命中二级分区,回落 default_bitrate);
-控制台只做码率数值,不做选档。
+控制台只读展示推荐/默认码率与编码能力,不写 OBS 编码器(视频码率由用户在 OBS 中自行配置);不做选档。
 
 ## 5.5 CanUseH265Encoder / CanUseAV1Encoder
 
