@@ -783,7 +783,7 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
-| U6 | 备流 `backup_stream_type`/`stream_biz` 取值(工厂表调用方寄存器,字面量不可定位;仓库省略待实网观测) | §4.1 |
+| U6 | 备流 `backup_stream_type`/`stream_biz` 取值 | §4.1。**调用方字面量已定位(2026-11-26,`RequestStartLive`=`FUN_180d603a0` 14 参 vcall)**:官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`);**未决**:service 内部把这三参路由到标准 builder(slot14) 还是备流 builder(slot13)——决定实网 URL 是否恒带这三参,待 secret.dll 全分析工程钉(re/ghidra_secret) |
 | U-QS | `GetQualityData` 的 `streamName`/`key` 取值构造 | §5.3 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |
