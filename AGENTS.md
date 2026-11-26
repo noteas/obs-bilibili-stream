@@ -26,7 +26,8 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 ### Ghidra 使用准则（2026-11-26 确立，详见 `re/GHIDRA-NOTES.md`）
 
 - **废弃旧打法**：不要再「复用旧工程 + `-noanalysis` + 定向 DumpVAs」一条路走到黑——它跳过整个分析管线，产物里全是 `UNK_*`、`FUN_xxx`、`undefined8`，字符串/RTTI/vftable/参数全没建出来。
-- **新目标第一件事 = 完整分析**：建全新工程 `-import`（默认开全部分析器），用 `-analysisTimeoutPerFile`、`-max-cpu` 兜底，并**显式给堆**——headless 默认仅 2G，70MB 级必 OOM（用 `GHIDRA_HEADLESS_MAXMEM=16G`）；70MB 级一次约 20~40 分钟。
+- **工程粒度 = 整个直播姬**：livehime.exe / bililive.dll / bililive_secret.dll 是**同一程序的三件套**，一律放**同一个 Ghidra 工程** `re/ghidra_full`（livehime_full）内、每个二进制一个 Program——**不要按 DLL 拆工程**（跨 DLL 虚表槽位/符号/调用点对照只有同工程才顺手）。bililive.dll 于 11-26 全分析完成；bililive_secret.dll 原被误拆到 `ghidra_secret`，2026-11-26 并入联合工程重新全分析；livehime.exe 待并入。
+- **新二进制第一件事 = 完整分析**：`-import` 进统一工程（默认开全部分析器），用 `-analysisTimeoutPerFile`、`-max-cpu` 兜底，并**显式给堆**——headless 默认仅 2G，70MB 级必 OOM（用 `GHIDRA_HEADLESS_MAXMEM=16G`，实测 70MB 级一次 20~40 分钟；35MB 级如 secret.dll 8G 堆约 8 分钟足够）。
 - **全分析之后用官方增值脚本**：`RecoverClassesFromRTTIScript.java`（RTTI→类/方法名，能把 `FUN_180d5c120` 变成 `LivehimeLiveRoomController::OpenLiveRoom`）、Decompiler Parameter ID、`StringParameterPropagator.java` 等；DumpVAs 只作增量抽查。
 - **无 PDB(2026-11-26 复核)**：三条主 PE 的 Debug Directory **有** CodeView/RSDS 条目(GUID+age+`*.pdb` 名,指纹已记 GHIDRA-NOTES §3.1),但 PDB 文件从不随包分发、私有构建无处可取——按「拿不到符号文件」处理,符号恢复靠 RTTI + 字符串 + 全分析,别浪费时间找 PDB。
 - **RTTI 即证据**：`.?AV<lambda_N>@?0??Method@Class@@...@Z@` 直接给出真实 C++ 方法签名，遇到先 strings 全量扫一遍。
