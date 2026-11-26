@@ -119,19 +119,31 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
-      - name: Expose Raw Binary (.so) 📤
+      - name: Package Plugin Directory Zip 📦
         shell: bash
         run: |
-          : Expose Raw Binary so
+          : Package Plugin Directory Zip
+          # 用户插件目录布局(OBS %module% 模板):bin/64bit/<lib> + data/,
+          # 解压即用: unzip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
           src="$(find build_x86_64 -name 'bilibili-stream-for-obs.so' -print -quit)"
-          if [ -n "$src" ]; then
-            dst="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64-${{ matrix.os }}.so"
-            sudo cp -f "$src" "$dst"
-            sudo chown "$(id -u):$(id -g)" "$dst"
-            echo "raw binary: $src"
-          else
-            echo "::warning::raw .so not found"
+          if [ -z "$src" ]; then
+            echo "::error::.so not found after build"
+            exit 1
           fi
+          stage="$(mktemp -d)"
+          mkdir -p "$stage/bin/64bit" "$stage/data"
+          cp "$src" "$stage/bin/64bit/"
+          printf '%s\n' \
+            'bilibili-stream-for-obs 无附带数据文件;本目录对应 OBS 用户插件目录模板 %module%/data。' \
+            '安装: 解压本 zip 到 ~/.config/obs-studio/plugins/bilibili-stream-for-obs/ (得到 bin/64bit/ 与 data/)。' \
+            > "$stage/data/README.txt"
+          ( cd "$stage" && zip -rq plugin.zip bin data )
+          dst="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64-${{ matrix.os }}.zip"
+          sudo mkdir -p release
+          sudo cp -f "$stage/plugin.zip" "$dst"
+          sudo chown "$(id -u):$(id -g)" "$dst"
+          rm -rf "$stage"
+          echo "plugin dir zip: $dst"
 
       - name: Upload Source Tarball 🗜️
         uses: actions/upload-artifact@v7
@@ -245,16 +257,30 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
-      - name: Expose Raw Binary (.dll) 📤
+      - name: Package Plugin Directory Zip 📦
         shell: pwsh
         run: |
+          # 用户插件目录布局(OBS %module% 模板):bin/64bit/<lib> + data/。
+          # 覆盖 Package-Windows.ps1 生成的安装布局 zip:三平台统一发「解压即用」zip,
+          # 不再附裸 .dll。
           $dll = Get-ChildItem -Path build_x64 -Recurse -Filter 'bilibili-stream-for-obs.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($dll) {
-            Copy-Item $dll.FullName "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64.dll" -Force
-            Write-Host "raw binary: $($dll.FullName)"
-          } else {
-            Write-Host "::warning::raw .dll not found"
+          if (-not $dll) {
+            Write-Error '.dll not found after build'
+            exit 1
           }
+          $stage = Join-Path $env:RUNNER_TEMP 'plugin-zip'
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'bin/64bit') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'data') | Out-Null
+          Copy-Item $dll.FullName (Join-Path $stage 'bin/64bit/')
+          Set-Content -Encoding utf8 -Path (Join-Path $stage 'data/README.txt') -Value @(
+            'bilibili-stream-for-obs 无附带数据文件;本目录对应 OBS 用户插件目录模板 %module%/data。',
+            '安装: 解压本 zip 到 %APPDATA%\obs-studio\plugins\bilibili-stream-for-obs\ (得到 bin\64bit\ 与 data\)。'
+          )
+          $dst = "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64.zip"
+          Compress-Archive -Force -CompressionLevel Optimal -Path (Join-Path $stage 'bin'), (Join-Path $stage 'data') -DestinationPath $dst
+          Remove-Item -Recurse -Force $stage
+          Write-Host "plugin dir zip: $dst (replaces installer-layout zip)"
 
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v7
