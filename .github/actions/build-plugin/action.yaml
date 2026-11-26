@@ -60,10 +60,6 @@ runs:
         sudo apt-get install -y \
           libcurl4-openssl-dev \
           libobs-dev \
-          qt6-base-dev \
-          libqt6core6 \
-          libqt6gui6 \
-          libqt6widgets6 \
           cmake \
           build-essential \
           ccache
