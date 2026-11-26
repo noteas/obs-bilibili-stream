@@ -30,14 +30,6 @@
     ```
 5.  **启动 OBS**：重新启动 OBS Studio，插件将自动加载。
 
-### macOS
-
-1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的 `bilibili-stream-for-obs-*-macos-universal.pkg`。
-2.  **安装插件**：双击 `.pkg` 文件，按提示完成安装。
-3.  **启动 OBS**：重新启动 OBS Studio，插件将自动加载。
-
-插件将安装到 `/Library/Application Support/obs-studio/plugins/` 目录。
-
 ### Ubuntu/Debian
 
 1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的 `.deb` 包（例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-22.04.deb`）。

@@ -72,11 +72,9 @@ jobs:
           commit_hash="${GITHUB_SHA:0:9}"
 
           variants=(
-            'windows-x64;zip|exe'
-            'macos-universal;tar.xz|pkg'
-            'macos-x86_64;tar.xz|pkg'
-            'ubuntu-22.04-x86_64;tar.xz|deb|ddeb'
-            'ubuntu-24.04-x86_64;tar.xz|deb|ddeb'
+            'windows-x64;zip|exe|dll'
+            'ubuntu-22.04-x86_64;tar.xz|deb|ddeb|so'
+            'ubuntu-24.04-x86_64;tar.xz|deb|ddeb|so'
             'flatpak-x86_64;flatpak'
             'sources;tar.xz'
           )
@@ -100,7 +98,7 @@ jobs:
           shopt -s extglob
 
           echo "### Checksums" > ${{ github.workspace }}/CHECKSUMS.txt
-          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.flatpak|*.pkg|*.tar.xz|*.zip); do
+          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.flatpak|*.tar.xz|*.zip|*.so|*.dll); do
             echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
           done
           root_dir="$(pwd)"
@@ -119,8 +117,9 @@ jobs:
           files: |
             ${{ github.workspace }}/*.exe
             ${{ github.workspace }}/*.zip
-            ${{ github.workspace }}/*.pkg
             ${{ github.workspace }}/*.deb
             ${{ github.workspace }}/*.ddeb
             ${{ github.workspace }}/*.flatpak
             ${{ github.workspace }}/*.tar.xz
+            ${{ github.workspace }}/*.so
+            ${{ github.workspace }}/*.dll
