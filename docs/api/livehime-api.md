@@ -72,7 +72,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
 | 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验**(2026-11-26 复验:伴参补齐后转 70002,见下行) |
-| 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验。**复验 2026-11-26(src=8 已注入,仍 70002)**:body 与官方 Normal 默认字面量全等(`backup_stream=1&backup_stream_type=2&stream_biz=Paylive&type=1&checked=0&src`,LIVE-CHAIN §2.5 终稿)⇒ 差异不在 body。官方结果回调(`FUN_180d63460`,§2.7)对 startLive 失败**无回退重试**=直播姬同样会报此错,插件的「回退普通开播」是插件自有设计。**首要嫌疑=access_key 缺失**(公共参数注入器恒带非空 App OAuth 身份,服务端按它判定;先例=stopLive 60034),待扫码重登补 access_key 后复验。**复验 2026-11-26(扫码重登后仍 70002)**:access_key 假设**未获测**——refresh_token 交换本身失败(-101,见 60034 行),官方 web 登录用户的 access_key 可能同样为空(单 appkey 实证)⇒ 嫌疑降级。**复验 2026-11-26(新构建全新扫码,ticket/SSO 链完整)交换仍 -101**:E-20 证 web token 无桥,官方 web 登录 access_key 大概率为空(60034 又证空值可过政策)⇒ access_key 嫌疑进一步弱化。**排除清单**:body 参数(=官方默认字面量,指令级)、appkey(二进制内唯一)、src(=stream_line[0].src=8 已注入)、错误码特判(官方无)。**剩余候选**:①传输层指纹(Referer/Origin/cookie 完整度/traceid 格式)②服务端按账号/房间不下发备流资格(则官方同账号也会命中 70002=直播姬同样报错)。**E-21 定位①具体嫌疑**:插件此前在 `HttpClient::init()` 自造随机 UUIDv4(36 位带连字符)恒发 `client_traceid` 头——整个 wire 格式唯一凭空虚构的数据;官方该头是**非空才注**(备流 builder F-180146070 判 `param_10` 空),且原生形态=32 位小写 hex(成功响应 new_link 内 `trid=…`)。已改为默认不发 + 隐藏配置 `client_traceid_probe` 探针。**裁决实验(不再改参)**:同账号跑官方直播姬开播——若也报「获取推流地址失败」⇒②成立,插件对齐已到终点;若官方成功⇒①,以代理 capture 官方 startLive 对包定差异 |
+| 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验。**复验 2026-11-26(src=8 已注入,仍 70002)**:body 与官方 Normal 默认字面量全等(`backup_stream=1&backup_stream_type=2&stream_biz=Paylive&type=1&checked=0&src`,LIVE-CHAIN §2.5 终稿)⇒ 差异不在 body。官方结果回调(`FUN_180d63460`,§2.7)对 startLive 失败**无回退重试**=直播姬同样会报此错,插件的「回退普通开播」是插件自有设计。**首要嫌疑=access_key 缺失**(公共参数注入器恒带非空 App OAuth 身份,服务端按它判定;先例=stopLive 60034),待扫码重登补 access_key 后复验。**复验 2026-11-26(扫码重登后仍 70002)**:access_key 假设**未获测**——refresh_token 交换本身失败(-101,见 60034 行),官方 web 登录用户的 access_key 可能同样为空(单 appkey 实证)⇒ 嫌疑降级。**复验 2026-11-26(新构建全新扫码,ticket/SSO 链完整)交换仍 -101**:E-20 证 web token 无桥,官方 web 登录 access_key 大概率为空(60034 又证空值可过政策)⇒ access_key 嫌疑进一步弱化。**排除清单**:body 参数(=官方默认字面量,指令级)、appkey(二进制内唯一)、src(=stream_line[0].src=8 已注入)、错误码特判(官方无)、传输层指纹(secret.dll 内嵌 Cronet/BoringSSL/QUIC,与 libcurl 天然不同,但**同插件 libcurl 的普通开播/停播/登录实网全成功** ⇒ 服务端不按指纹拦业务接口,E-22 §3)。**E-22 定案(2026-11-26,根因)**:官方开播分派器 `FUN_180d5de60` 按 `upower_privilege_type`(=§3.10 `GetVisibleMode` 下发)switch,**仅 ==5("PRELIVE_UPOWER")才走备流 builder 发 `backup_stream=1`**;其余值走标准 builder(不带备流参)⇒ **无备流资格账号官方从不发备流请求,故官方永不命中 70002**。普通开播响应 `protocols_backup:null` 与此相互印证(服务端本就没给该账号备流通道)。插件此前把 E-19 备流 builder 的「恒传」字面量当全局、无条件强发备流伴参 = 70002 唯一诱因(此前 src/access_key/client_traceid 诸假设均为对齐方向的正确副产品但非根因)。仓库已修:`startLive(with_backup)` 先 `getVisibleMode()` 查资格,==5 才注伴参,≠5 按官方普通路径发送并提示无资格。E-22 🟢(机制定案);待实网复验:本账号 GetVisibleMode 回值应≠5 且不再出 70002;若=5 则追 preparePaylive 预备调用(E-22 §2) |
 | 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。**根因修正(2026-11-26 实网双证据)**:失败于 11-25;修复 `3417d87`(11-26 09:02)同时补齐 stopLive 的 `version/platform/build` 公共参数与 access_key 交换;20:43 停播成功时 **access_key 实测为空**(21:06 才首次触发交换且失败)⇒ **政策放行不需要非空 access_key,生效项=App 版本参数指纹(version/build/platform)**(残余不确定:11-25~26 间政策窗口恰结束无法离线排除)。access_key 交换链(web refresh_token→oauth2/refresh_token)实网 -101 **定案(E-20)**:干净会话(新 ticket+SSO+配对 token)仍 -101 ⇒ web poll token 与该 appkey 端点结构性不兼容;官方 token 仅产自账密登录(v3/oauth2/login,参数簇已逆向)或 authorization_code/SNS,web 扫码无桥(三件套+线上 miniLogin JS 均无 authorize 痕迹)。推论:服务端「直播姬身份」判定以参数/传输指纹为主,70002 的 access_key 嫌疑随之弱化。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
@@ -414,6 +414,16 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 
 ### 证据: 端点明文 E-05;字符串锚点命中但无 xref(DumpFlow 输出)。仓库: 60024 二维码、60043 `auth-middle.html?source_event=200&mid=` ✅；`IsUserIdentifiedByFaceAuth`/`GetRealnameApplyStatus` 未单独调用（PreCheck 覆盖实名）。
 
+## 3.10 GetVisibleMode(开播分派开关, E-22)
+
+### 请求
+`GET https://api.live.bilibili.com/xlive/app-blink/v2/preLive/GetVisibleMode` — 无业务参数,公共参数+appsign(builder F-18044c590,指令级)。
+
+### 响应(`data`, parser F-18044d410 钉死)
+`visible_mode` / `guard_visible_type` / **`upower_privilege_type`**。开播分派器(bililive.dll F-180d5de60)按 `upower_privilege_type` switch:**==5(日志字面 "PRELIVE_UPOWER")⇒ 备流 builder(§4.1 备流三参+src)**;0/2/3/0xffffffff ⇒ 标准 builder(不带备流参)。同族 paylive 权益端点(RTTI `.?AVLiveGuardExclusiveService@secret@@` + URL 明文):`general-interface/v1/paylive/preparePaylive`(POST JSON `{"type":N,"upower_opt":{"upower_privilege_type":M}}`,builder F-18044a950,`upower_opt` 仅 type==2 注)、`prepareGuardPaylive`、`queryPayliveStatus`、`getPayliveInfoForAnchor`、`GetCanEncryptRoomInfo`——**备流伴参与 Paylive 业务同属直播权益子系统**;单例开关值同被注入 H5 URL `&upower_privilege_type=`(F-180643940,同串 `&device=PCLINK#/pclink`)。
+
+### 证据: E-22(F-180d5de60 分派 switch + 回调单例 `*+0` + parser F-18044d410 + RTTI 端点族)。仓库 `getVisibleMode()` ✅(开播(含备流)资格门);preparePaylive 族未实施 ❌(仅 ==5 且备流分配仍失败时再追)。
+
 ---
 
 # 4. 开播与房间设置
@@ -439,10 +449,10 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
-| `backup_stream` | 备流 builder(F-180146070) | `itoa(param_8)`(builder 第 8 参,指令实证) | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
+| `backup_stream` | **仅备流 builder(F-180146070),而该 builder 只在开播分派 `upower_privilege_type==5`(§3.10/E-22)时被调用** | `itoa(param_8)`(builder 第 8 参,指令实证;分派器实参=常量 1) | ✅ `startLive(with_backup=true)`:先查 `getVisibleMode()`,==5 才注伴参;≠5 按官方普通路径发送并提示无资格(E-22) |
 | `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ✅ 默认恒注 `2`;探针 `backup_stream_type_probe` 非空可覆盖(实网复核) |
 | `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ✅ 默认恒注 `Paylive`;探针 `stream_biz_probe` 非空可覆盖(插件不做教室房) |
-| `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):开播(含备流)先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。注:官方 `RequestStartLive` 恒走备流 builder(U6)⇒ 官方普通开播**也恒带** src+备流三参;仓库「开播」=标准 builder 形态(实网兼容已证),是否收敛到官方恒带形态待定 |
+| `src` | 备流 builder,**仅 `param_6==0`**(custom-rtmp 关);备流 builder 本身仅 `upower_privilege_type==5` 触发(§3.10/E-22) | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):开播(含备流)资格门(E-22)通过后先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。**订正(E-22)**:官方普通开播走标准 builder,**不带** src+备流三参;此前「官方恒带」判断作废 |
 | `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
 | `csrf_token` `csrf` `ts` `appkey` `sign` | 管线 | §1 | ✅ |
@@ -450,9 +460,16 @@ Cookie: <会话>  client_traceid: <非空才带>
 **备流语义(用户澄清 2026-11-26)**:`backup_stream=1` 请求的是**第二条独立推流通道**
 (`protocols_backup[]`/`rtmp_backup`,自己的地址与推流码),与主流可同时推;
 主流失效时转发侧自动切到备流。**不是**同 key 的多个地址(同 key 二次连接会被拒)。
-U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);builder 默认
-恒注官方值,`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空时覆盖
-默认值)保留作实网复核。
+
+**备流门控(E-22 定案 2026-11-26)**:备流 builder(F-180146070)**非恒调**——开播分派器
+`FUN_180d5de60` 读 `upower_privilege_type`(来自 §3.10 `GetVisibleMode`)switch,**仅 ==5
+("PRELIVE_UPOWER")才走备流 builder**;其余值(0/2/3/0xffffffff)走标准 builder
+F-180141ed0(不带备流三参)。⇒ 无备流资格账号官方从不发 `backup_stream`,官方永不命中
+70002;插件此前无条件强发备流伴参 = 70002 唯一诱因。仓库 `startLive(with_backup=true)` 已
+改为:先 `getVisibleMode()` 查资格,仅 `upower_privilege_type==5` 注 `src`+备流三参,
+≠5 按官方普通请求发送并提示「无备流资格」(等同官方分派);资格查询失败则回退旧形态
+(强发+失败回退普通开播)。`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`
+保留作实网复核通道(非空时覆盖 builder 默认 `2`/`Paylive`)。
 
 ### 响应
 ```json

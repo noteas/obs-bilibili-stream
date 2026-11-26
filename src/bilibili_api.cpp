@@ -710,6 +710,31 @@ json11::Json BiliApi::getActiveStream(const std::string &room_id, std::string &m
 	return json["data"];
 }
 
+json11::Json BiliApi::getVisibleMode(std::string &message)
+{
+	if (!ensureVersionInfo(message))
+		return json11::Json();
+	// 契约 §3.10(builder F-18044c590,指令级):无业务参数,公共参数+appsign。
+	// 解析器 F-18044d410 读 data.{visible_mode, guard_visible_type,
+	// upower_privilege_type};E-22:upower_privilege_type 是官方开播分派
+	// (F-180d5de60)选备流/普通 builder 的开关。
+	std::vector<std::pair<std::string, std::string>> params = common_params();
+	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v2/preLive/GetVisibleMode?" +
+			  appsign(params, APP_KEY, APP_SECRET);
+	auto response = Http::HttpClient::get(url);
+	if (response.status != 200) {
+		message = "GetVisibleMode 失败，状态码: " + std::to_string(response.status);
+		return json11::Json();
+	}
+	std::string err;
+	json11::Json json = json11::Json::parse(response.data, err);
+	if (!err.empty() || json["code"].int_value() != 0) {
+		message = "GetVisibleMode 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		return json11::Json();
+	}
+	return json["data"];
+}
+
 bool BiliApi::getUpStreamRtmp(const std::string &room_id, bool &can_change, std::vector<std::string> &urls,
 			      std::string &message)
 {
@@ -824,55 +849,79 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	// platform/build/version/ts arrive via the common injector clone.
 	// checked="0": 恒注 (itoa(0) 实证); type="1": custom-rtmp 配置默认关时恒注,
 	// 值 = '1'+UI 开播类型索引, 插件无类型选择 ⇒ 索引 0 (F-180141ed0)。
-	// backup_stream 只由备流 builder(F-180146070)注入;标准 builder 不带该键。
 	std::vector<std::pair<std::string, std::string>> start_params = {{"room_id", config.room_id},
 									 {"area_v2", std::to_string(config.area_id)},
 									 {"checked", "0"},
 									 {"type", "1"}};
-	// 官方备流 builder 恒带 src(E-19/G1):值 = get_stream_by_roomId 响应
-	// data.stream_line[].src,原样透传;服务端用它定位备流落点线路。
-	// 实网观测 2026-11-26:缺伴参→70003,带伴参但无 src→70002,同会话普通
-	// 开播始终成功 ⇒ 备流地址分配依赖 src。选取规则:checked!=0 条目优先,
-	// 无则首条(官方 service 子对象只存单个 src,即选中线路)。取不到=告警
-	// +无 src 发送(等价已知现状,不阻断)。
+	// E-22(2026-11-26,订正 E-19「官方恒带备流伴参」误判):官方开播分派
+	// (bililive.dll F-180d5de60)按 upower_privilege_type(源自 §3.10
+	// GetVisibleMode)switch:仅 ==5(日志字面 "PRELIVE_UPOWER")走备流 builder
+	// F-180146070(src+backup_stream=1/type=2/stream_biz=Paylive);其余值
+	// (0/2/3/0xffffffff)走标准 builder F-180141ed0=**不带备流参数**。
+	// ⇒ 无备流资格账号官方根本不发备流请求;强发 = 服务端备流地址分配失败
+	// = 70002(实网三次观测与此吻合,同会话普通开播恒成功)。对齐同款判定:
+	// 先查 GetVisibleMode,==5 才注备流伴参(资格查询失败则按 case-5 形态强发,
+	// 保留回退普通开播兜底)。src 仅备流 builder 注入(E-19/G1):值 =
+	// get_stream_by_roomId 响应 data.stream_line[].src,原样透传,选取
+	// checked!=0 优先、无则首条;取不到=告警+无 src 发送,不阻断。
 	if (with_backup) {
-		std::string streamMsg;
-		const json11::Json lines =
-			getActiveStream(config.room_id, streamMsg)["stream_line"];
-		// src 值域已定为数字(G1),防御性兼容字符串:原样透传,不猜。
-		auto src_of = [](const json11::Json &line) {
-			const json11::Json s = line["src"];
-			return s.is_string() ? s.string_value() : s.dump();
-		};
-		for (size_t i = 0; i < lines.array_items().size(); i++) {
-			const json11::Json &line = lines.array_items()[i];
-			obs_log(LOG_INFO, "stream_line[%zu]: name=%s cdn_name=%s src=%s checked=%d", i,
-				line["name"].string_value().c_str(), line["cdn_name"].string_value().c_str(),
-				src_of(line).c_str(), line["checked"].bool_value() ? 1 : 0);
+		bool backup_gate = false;
+		std::string vmMsg;
+		const json11::Json vm = getVisibleMode(vmMsg);
+		if (!vmMsg.empty()) {
+			obs_log(LOG_WARNING, "GetVisibleMode 资格查询失败,按官方 case-5 形态强发备流参数: %s",
+				vmMsg.c_str());
+			backup_gate = true;
+		} else {
+			const int privilege = vm["upower_privilege_type"].int_value();
+			obs_log(LOG_INFO,
+				"备流资格 GetVisibleMode: upower_privilege_type=%d visible_mode=%d guard_visible_type=%d"
+				"(官方仅 ==5 走备流 builder)",
+				privilege, vm["visible_mode"].int_value(), vm["guard_visible_type"].int_value());
+			backup_gate = privilege == 5;
+			if (!backup_gate)
+				message = "本账号 upower_privilege_type=" + std::to_string(privilege) +
+					"(官方规则:仅 =5 走备流开播),已按官方普通开播请求发送";
 		}
-		std::string src_value;
-		for (const auto &line : lines.array_items()) {
-			if (line["checked"].bool_value() && src_of(line) != "null") {
-				src_value = src_of(line);
-				break;
+		if (backup_gate) {
+			std::string streamMsg;
+			const json11::Json lines =
+				getActiveStream(config.room_id, streamMsg)["stream_line"];
+			// src 值域已定为数字(G1),防御性兼容字符串:原样透传,不猜。
+			auto src_of = [](const json11::Json &line) {
+				const json11::Json s = line["src"];
+				return s.is_string() ? s.string_value() : s.dump();
+			};
+			for (size_t i = 0; i < lines.array_items().size(); i++) {
+				const json11::Json &line = lines.array_items()[i];
+				obs_log(LOG_INFO, "stream_line[%zu]: name=%s cdn_name=%s src=%s checked=%d", i,
+					line["name"].string_value().c_str(), line["cdn_name"].string_value().c_str(),
+					src_of(line).c_str(), line["checked"].bool_value() ? 1 : 0);
 			}
+			std::string src_value;
+			for (const auto &line : lines.array_items()) {
+				if (line["checked"].bool_value() && src_of(line) != "null") {
+					src_value = src_of(line);
+					break;
+				}
+			}
+			if (src_value.empty() && !lines.array_items().empty() && src_of(lines.array_items()[0]) != "null")
+				src_value = src_of(lines.array_items()[0]);
+			if (src_value.empty())
+				obs_log(LOG_WARNING, "stream_line 取不到 src(%s),备流请求将不带 src 发送",
+					streamMsg.c_str());
+			else
+				start_params.push_back({"src", src_value});
+			start_params.push_back({"backup_stream", "1"});
+			// 备流 builder F-180146070 恒传 param_8=2、param_9="Paylive"
+			// (教室房 "ClassRoom",插件不做教室房)。探针(隐藏配置)保留作
+			// 实网复核通道:非空时覆盖官方值。
+			start_params.push_back({"backup_stream_type", config.backup_stream_type_probe.empty()
+							     ? "2"
+							     : config.backup_stream_type_probe});
+			start_params.push_back({"stream_biz", config.stream_biz_probe.empty() ? "Paylive"
+											       : config.stream_biz_probe});
 		}
-		if (src_value.empty() && !lines.array_items().empty() && src_of(lines.array_items()[0]) != "null")
-			src_value = src_of(lines.array_items()[0]);
-		if (src_value.empty())
-			obs_log(LOG_WARNING, "stream_line 取不到 src(%s),备流请求将不带 src 发送(已知形态=70002)",
-				streamMsg.c_str());
-		else
-			start_params.push_back({"src", src_value});
-		start_params.push_back({"backup_stream", "1"});
-		// U6 已闭合(E-19):官方备流 builder 恒传 param_9=2、param_10="Paylive"
-		// (教室房 "ClassRoom",插件不做教室房)⇒ 默认恒注对齐。
-		// 探针(隐藏配置)保留作实网复核通道:非空时覆盖官方值。
-		start_params.push_back({"backup_stream_type", config.backup_stream_type_probe.empty()
-								     ? "2"
-								     : config.backup_stream_type_probe});
-		start_params.push_back({"stream_biz", config.stream_biz_probe.empty() ? "Paylive"
-										       : config.stream_biz_probe});
 	}
 	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
 	if (!config.recommend_protocol.empty())

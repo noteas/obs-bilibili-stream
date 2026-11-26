@@ -142,6 +142,12 @@ public:
 	// {rtmp:{addr,code}, stream_line:[{src,cdn_name,checked}]}。进行中场次的
 	// 推流地址与密钥。Returns data or null Json.
 	static json11::Json getActiveStream(const std::string &room_id, std::string &message);
+	// §3.10 GetVisibleMode (builder F-18044c590; parser F-18044d410): 无业务
+	// 参数,公共参数+appsign。data = {visible_mode, guard_visible_type,
+	// upower_privilege_type}。E-22:官方开播分派器(bililive.dll F-180d5de60)
+	// 按 upower_privilege_type 选 startLive builder——==5 才走备流 builder
+	// (backup_stream=1/type=2/stream_biz=Paylive),其余值走无备流参 builder。
+	static json11::Json getVisibleMode(std::string &message);
 	// §7.2 GetUpStreamRtmp (F-18014d920): ReconnectLiveInfo{can_change, urls[],
 	// message}. 恢复推流前的可推地址查询(配套 §3.1 live_status 判在播)。
 	static bool getUpStreamRtmp(const std::string &room_id, bool &can_change,
