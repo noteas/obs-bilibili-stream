@@ -81,10 +81,9 @@ public:
 	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
 				     bool prefer_official = true);
 	static json11::Json getPartitionList(std::string &message);
-	// with_backup=true 走官方备流构造(F-180146070 参数位): backup_stream=1;
-	// 普通开播走标准 builder,官方不注入 backup_stream(插件也不注入)。
-	// 官方恒注的 backup_stream_type/stream_biz 取值未钉死(经工厂表由调用方传入,
-	// 字面量不在二进制定位)——此处省略并在响应观测后补钉,不猜值。
+	// with_backup=true 走官方备流构造(F-180146070 参数位): backup_stream=1,
+	// 并对齐官方恒注 backup_stream_type=2 / stream_biz=Paylive(E-19,U6 闭合;
+	// 隐藏配置探针非空可覆盖)。普通开播走标准 builder,官方不注入这些键。
 	// backup_addr/code 非空则回填 data.protocols_backup[](解析序第7步)。
 	// face_qr 只在服务端给二维码(data.qr)时填充;face_page_url 用于 60043
 	// 的 auth-middle 网页(官方直接开窗口,不是二维码)。

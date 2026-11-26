@@ -71,7 +71,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | -101 | 未登录 → 登录流程 |
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
-| 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试) |
+| 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验** |
 | 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。根因=官方公共参数 `FUN_180063f70` 恒带 App OAuth `access_key`，插件旧实现漏发；现已用扫码 `refresh_token` 调 `/api/v2/oauth2/refresh_token` 换取并签名发送，待真实扫码/停播实测（E-15）。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
@@ -439,8 +439,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
 | `backup_stream` | 备流 builder(F-180146070) | `itoa(param_8)`(builder 第 8 参,指令实证) | ✅ `startLive(with_backup=true)`(「开播(含备流)」) |
-| `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ⚠ 当前省略;官方恒传值已定(E-19),可对齐 |
-| `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ⚠ 当前省略;官方恒传值已定(E-19),可对齐 |
+| `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ✅ 默认恒注 `2`;探针 `backup_stream_type_probe` 非空可覆盖(实网复核) |
+| `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ✅ 默认恒注 `Paylive`;探针 `stream_biz_probe` 非空可覆盖(插件不做教室房) |
 | `src` | 备流 builder,**仅 `param_6==0`** | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ❌(官方普通路径 param_6≠0 时不发;仓库恒发 checked 亦为可接受超集) |
 | `client_traceid` | 备流 builder,非空才注 | `param_11` | ✅ 请求头 |
 | `platform=pc_link` `version` `build` | 官方公共参数 | — | ✅ 显式放 body `:366,371-372` |
@@ -449,8 +449,9 @@ Cookie: <会话>  client_traceid: <非空才带>
 **备流语义(用户澄清 2026-11-26)**:`backup_stream=1` 请求的是**第二条独立推流通道**
 (`protocols_backup[]`/`rtmp_backup`,自己的地址与推流码),与主流可同时推;
 主流失效时转发侧自动切到备流。**不是**同 key 的多个地址(同 key 二次连接会被拒)。
-U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);探针
-`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空才注入)保留作实网复核。
+U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);builder 默认
+恒注官方值,`config.json` 的 `backup_stream_type_probe`/`stream_biz_probe`(非空时覆盖
+默认值)保留作实网复核。
 
 ### 响应
 ```json
@@ -789,7 +790,7 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 | # | 未定 | 出现处 |
 |---|---|---|
 | U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
-| U6 | ~~备流 `backup_stream_type`/`stream_biz` 取值~~ | §4.1。🟢 **闭合(2026-11-26, E-19)**:`RequestStartLive`(`bililive.dll` 入口 `0x180d603a0`)尾部 **14 实参 vcall 固定路由到 service vtable 槽 `0x68`(slot13)=F-180146070 备流/多路 builder**(14 实参几何上排除 12 参的标准 builder 槽 `0x70`=F-180141ed0);官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`) ⇒ 实网 URL **恒带** `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`。证据 `re/evidence/19-u6-g1-closed.md` |
+| U6 | ~~备流 `backup_stream_type`/`stream_biz` 取值~~ | §4.1。🟢 **闭合(2026-11-26, E-19)**:`RequestStartLive`(`bililive.dll` 入口 `0x180d603a0`)尾部 **14 实参 vcall 固定路由到 service vtable 槽 `0x68`(slot13)=F-180146070 备流/多路 builder**(14 实参几何上排除 12 参的标准 builder 槽 `0x70`=F-180141ed0);官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`) ⇒ 实网 URL **恒带** `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`。证据 `re/evidence/19-u6-g1-closed.md`。**仓库已对齐(2026-11-26)**:备流请求默认恒注两参,探针退化为覆盖通道;70003 是否因缺参触发待实网复验 |
 | U-QS | `GetQualityData` 的 `streamName`/`key` 取值构造 | §5.3 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |
 | U5 | login-v3 请求参数集 | §2.7 |

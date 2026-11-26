@@ -824,14 +824,17 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 									 {"area_v2", std::to_string(config.area_id)},
 									 {"checked", "0"},
 									 {"type", "1"}};
-	if (with_backup)
+	if (with_backup) {
 		start_params.push_back({"backup_stream", "1"});
-	// U6 探针(隐藏配置,默认空):备流 builder 的 param_9/param_10 字面值只在
-	// app 层,静态不可达;非空才注入,用于用户在场的一次性补钉实测。
-	if (with_backup && !config.backup_stream_type_probe.empty())
-		start_params.push_back({"backup_stream_type", config.backup_stream_type_probe});
-	if (with_backup && !config.stream_biz_probe.empty())
-		start_params.push_back({"stream_biz", config.stream_biz_probe});
+		// U6 已闭合(E-19):官方备流 builder 恒传 param_9=2、param_10="Paylive"
+		// (教室房 "ClassRoom",插件不做教室房)⇒ 默认恒注对齐。
+		// 探针(隐藏配置)保留作实网复核通道:非空时覆盖官方值。
+		start_params.push_back({"backup_stream_type", config.backup_stream_type_probe.empty()
+								     ? "2"
+								     : config.backup_stream_type_probe});
+		start_params.push_back({"stream_biz", config.stream_biz_probe.empty() ? "Paylive"
+										       : config.stream_biz_probe});
+	}
 	// 上游选点透传(§5.7 测速结果;插件不做测速,仅当配置非空才注入,契约 §4.1)。
 	if (!config.recommend_protocol.empty())
 		start_params.push_back({"recommend_protocol", config.recommend_protocol});
