@@ -56,6 +56,16 @@
       }
     },
     {
+      "name": "ubuntu-x86_64-debug",
+      "inherits": ["ubuntu-x86_64"],
+      "displayName": "Ubuntu x86_64 (Debug)",
+      "description": "Debug build for debugging sessions (full symbols, build_x86_64_debug)",
+      "binaryDir": "${sourceDir}/build_x86_64_debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
       "name": "ubuntu-ci-x86_64",
       "inherits": ["ubuntu-x86_64"],
       "displayName": "Ubuntu x86_64 CI build",
@@ -88,6 +98,13 @@
       "displayName": "Ubuntu x86_64",
       "description": "Ubuntu build for x86_64",
       "configuration": "Release"
+    },
+    {
+      "name": "ubuntu-x86_64-debug",
+      "configurePreset": "ubuntu-x86_64-debug",
+      "displayName": "Ubuntu x86_64 (Debug)",
+      "description": "Ubuntu Debug build for debugging sessions",
+      "configuration": "Debug"
     },
     {
       "name": "ubuntu-ci-x86_64",
