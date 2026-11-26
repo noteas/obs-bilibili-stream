@@ -23,17 +23,9 @@ A plugin for OBS Studio that simplifies the streaming process on Bilibili platfo
     ```
 5.  **Launch OBS**: Restart OBS Studio, the plugin will load automatically.
 
-### macOS
-
-1.  **Download plugin**: Download the latest `bilibili-stream-for-obs-*-macos-universal.pkg` from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases).
-2.  **Install plugin**: Double-click the `.pkg` file and follow the installation wizard.
-3.  **Launch OBS**: Restart OBS Studio, the plugin will load automatically.
-
-The plugin will be installed to `/Library/Application Support/obs-studio/plugins/`.
-
 ### Ubuntu/Debian
 
-1.  **Download plugin**: Download the latest `.deb` package (e.g., `bilibili-stream-for-obs-*-x86_64-ubuntu-22.04.deb`) from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases).
+1.  **Download plugin**: Download the latest `.deb` package (e.g., `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.deb`) from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases).
 2.  **Install plugin**: Run the following command:
     ```bash
     sudo dpkg -i bilibili-stream-for-obs-*.deb
@@ -122,7 +114,7 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 ## Requirements
 
 - OBS Studio 30.0 or higher
-- Windows / macOS / Ubuntu 22.04 or higher
+- Windows / Ubuntu 24.04 or higher
 
 ## Contributing
 

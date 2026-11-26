@@ -32,7 +32,7 @@
 
 ### Ubuntu/Debian
 
-1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的 `.deb` 包（例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-22.04.deb`）。
+1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的 `.deb` 包（例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.deb`）。
 2.  **安装插件**：运行以下命令：
     ```bash
     sudo dpkg -i bilibili-stream-for-obs-*.deb
@@ -122,7 +122,7 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 ## 依赖
 
 - OBS Studio 30.0 或更高版本
-- Windows / macOS / Ubuntu 22.04 或更高版本
+- Windows / Ubuntu 24.04 或更高版本
 
 ## 贡献
 
