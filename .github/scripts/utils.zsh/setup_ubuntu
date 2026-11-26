@@ -12,8 +12,6 @@ if (( ! ${+target} )) {
 
 pushd ${project_root}
 
-typeset -g QT_VERSION
-
 local -a apt_args=(
   ${CI:+-y}
   --no-install-recommends

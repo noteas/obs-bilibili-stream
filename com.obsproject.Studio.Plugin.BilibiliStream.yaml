@@ -16,7 +16,6 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_FRONTEND_API=ON
-      - -DENABLE_QT=ON
     sources:
       - type: dir
         path: .

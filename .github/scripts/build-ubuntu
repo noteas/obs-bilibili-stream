@@ -195,7 +195,6 @@ ${_usage_host:-}"
         cmake_args+=(
           --preset ${_preset}-${target##*-}
           -G "${generator}"
-          -DQT_VERSION=${QT_VERSION:-6}
           -DCMAKE_BUILD_TYPE=${config}
           -DCMAKE_INSTALL_PREFIX=/usr
         )
