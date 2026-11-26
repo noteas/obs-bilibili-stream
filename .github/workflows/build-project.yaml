@@ -122,7 +122,7 @@ jobs:
       - name: Expose Raw Binary (.so) 📤
         shell: bash
         run: |
-          : Expose Raw Binary (.so)
+          : Expose Raw Binary so
           src="$(find build_x86_64 -name 'bilibili-stream-for-obs.so' -print -quit)"
           if [ -n "$src" ]; then
             cp -f "$src" "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64.so"
