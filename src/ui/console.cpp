@@ -807,6 +807,15 @@ bool on_part_changed(obs_properties_t *, obs_property_t *, obs_data_t *settings)
 			g_draft_area = first_area;
 		}
 	}
+	// 关键(OBS 32.2 源码实证,frontend/dialogs/OBSBasicProperties.cpp +
+	// shared/properties-view/properties-view.cpp):modified 回调返回 true 只触发
+	// RefreshProperties(按**缓存的** properties 重建控件,不会重跑 get_properties)
+	// ⇒ 列表条目永远停在对话框打开时的形态,只 return true 无法刷新二级列表。
+	// 重跑 get_properties 的唯一途径 = source 的 update_properties 信号
+	// (OBSBasicProperties 构造时连接它 → ReloadProperties → reloadCallback)。
+	// 官方插件(game capture 等)的动态列表同款做法:
+	if (g_source)
+		obs_source_update_properties(g_source);
 	return true; // rebuild the dialog so the sub-area list follows the parent
 }
 
