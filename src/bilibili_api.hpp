@@ -31,7 +31,7 @@ struct Config {
 	std::string recommend_ip;
 	// 推流线路(M1/U1):开播响应的 protocols[]/protocols_backup[] 全量保存,
 	// 控制台逐条只读展示(地址与推流码均可复制)。插件**不改** OBS 服务配置,
-	// 用哪条线路、何时切、怎么填 OBS 全由用户决定(ADR-0005,推翻 ADR-0001 写回链)。
+	// 用哪条线路、何时切、怎么填 OBS 全由用户决定(ADR-0005)。
 	struct StreamTarget {
 		std::string protocol; // rtmp / srt / bmtsrt / bmt …(官方给什么展示什么)
 		std::string provider; // txy / qn / …(可空)
@@ -47,6 +47,11 @@ struct Config {
 	std::string stream_biz_probe;
 	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)
 	std::string rtmp_backup_code;
+	// App OAuth 身份(官方公共参数注入器 FUN_180063f70 每次 app-blink 请求都带
+	// access_key)。access_key 由扫码登录拿到的 refresh_token 经
+	// /api/v2/oauth2/refresh_token 换取;refresh_token 随响应轮换。
+	std::string access_key;
+	std::string refresh_token;
 };
 
 // Endpoints never carry identity arguments: cookies, UA and client_traceid are
@@ -59,7 +64,15 @@ public:
 	static bool getQrCode(std::string &qr_data, std::string &qr_key, std::string &message);
 	// Success = login cookies landed in the session jar (Set-Cookie merge or
 	// the URL-query fallback), not a returned cookie string.
-	static bool qrLogin(const std::string &qr_key, std::string &message);
+	// refresh_token: mini-login-v2 扫码成功时 poll 返回的新字段;官方 H5 通过
+	// `auth/setRefreshToken` 交给原生,再换 access_key。旧响应可能为空。
+	static bool qrLogin(const std::string &qr_key, std::string &refresh_token, std::string &message);
+	// App OAuth 身份:用扫码得到的 refresh_token 调
+	// /api/v2/oauth2/refresh_token 换 access_key(access_token)并落 cookie_info。
+	// 成功时更新进程内 access_key;new_refresh_token 为轮换后的值(通常非空)。
+	static bool refreshAccessToken(const std::string &refresh_token, std::string &access_key,
+				       std::string &new_refresh_token, std::string &message);
+	static void setAccessKey(const std::string &access_key);
 	static bool checkLoginStatus(std::string &message, std::string &mid);
 	// Room bootstrap. Official = app-blink room/GetInfo?uId=<mid> (§3.3; parser
 	// F-1802b3690 reads data.room_id, proven); legacy = room/v2/Room/room_id_by_uid.
@@ -68,13 +81,17 @@ public:
 	static bool getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, std::string &message,
 				     bool prefer_official = true);
 	static json11::Json getPartitionList(std::string &message);
-	// with_backup=true 走官方备流构造(F-180146070 参数位): backup_stream=1。
+	// with_backup=true 走官方备流构造(F-180146070 参数位): backup_stream=1;
+	// 普通开播走标准 builder,官方不注入 backup_stream(插件也不注入)。
 	// 官方恒注的 backup_stream_type/stream_biz 取值未钉死(经工厂表由调用方传入,
 	// 字面量不在二进制定位)——此处省略并在响应观测后补钉,不猜值。
 	// backup_addr/code 非空则回填 data.protocols_backup[](解析序第7步)。
+	// face_qr 只在服务端给二维码(data.qr)时填充;face_page_url 用于 60043
+	// 的 auth-middle 网页(官方直接开窗口,不是二维码)。
 	static bool startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
 			      std::string &face_qr, std::string &mid, bool with_backup = false,
-			      std::string *backup_addr = nullptr, std::string *backup_code = nullptr);
+			      std::string *backup_addr = nullptr, std::string *backup_code = nullptr,
+			      std::string *face_page_url = nullptr);
 	static bool stopLive(const Config &config, std::string &message);
 	static bool updateRoomInfo(const Config &config, std::string &message, const std::string &title = "",
 				   int areaId = -1);
@@ -117,8 +134,9 @@ public:
 	// F-180447550 reads data.status int ONLY). Value set not pinned — surfaced
 	// raw for observation.
 	static bool getRoomPreLiveStatus(int &status, std::string &message);
-	// §7.1 get_stream_by_roomId (F-18014bf40; parser F-18014cf60): data =
-	// {rtmp:{addr,code}, stream_line:[{src,cdn_name,checked}]}. 进行中场次的
+	// §7.1 get_stream_by_roomId (F-18014bf40; parser F-18014cf60): 公共参数
+	// injector(F-180063f70)+ room_id + sign(业务参数只有 room_id)。data =
+	// {rtmp:{addr,code}, stream_line:[{src,cdn_name,checked}]}。进行中场次的
 	// 推流地址与密钥。Returns data or null Json.
 	static json11::Json getActiveStream(const std::string &room_id, std::string &message);
 	// §7.2 GetUpStreamRtmp (F-18014d920): ReconnectLiveInfo{can_change, urls[],

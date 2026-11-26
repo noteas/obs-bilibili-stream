@@ -189,17 +189,33 @@ void refresh_login_chain()
 	struct LoginChainResult {
 		bool loggedIn = false;
 		bool roomOk = false;
+		bool tokenRefreshed = false;
 		std::string message;
 		std::string mid;
 		std::string roomId;
 		std::string csrf;
+		std::string accessKey;
+		std::string refreshToken;
 		std::string roomState; // §3.1: 场次/封禁一句话(空=不可用)
 		int liveStatus = -1;   // §3.1 live_status 原值(M1b 断流找回判据)
 	};
 	const bool legacy = g_config.config().use_legacy_endpoints;
+	const std::string stored_refresh_token = g_config.config().refresh_token;
 	Http::HttpClient::runAsync(
-		[result, legacy]() {
+		[result, legacy, stored_refresh_token]() {
 			result->loggedIn = Bili::BiliApi::checkLoginStatus(result->message, result->mid);
+			// App OAuth 身份:官方登录后 SecretCore 一直持有 access_key,并在
+			// 每次 app-blink 请求里发送。插件用持久化的 refresh_token 换/续。
+			if (result->loggedIn && !stored_refresh_token.empty()) {
+				std::string tokenMessage;
+				if (Bili::BiliApi::refreshAccessToken(stored_refresh_token, result->accessKey,
+								      result->refreshToken, tokenMessage)) {
+					result->tokenRefreshed = true;
+				} else {
+					obs_log(LOG_WARNING, "刷新 access_key 失败(不影响登录): %s",
+						tokenMessage.c_str());
+				}
+			}
 			if (result->loggedIn)
 				result->roomOk = Bili::BiliApi::getRoomIdAndCsrf(
 					result->roomId, result->csrf, result->message, !legacy);
@@ -239,6 +255,11 @@ void refresh_login_chain()
 			if (result->roomOk) {
 				cfg.room_id = result->roomId;
 				cfg.csrf_token = result->csrf;
+			}
+			if (result->tokenRefreshed) {
+				cfg.access_key = result->accessKey;
+				if (!result->refreshToken.empty())
+					cfg.refresh_token = result->refreshToken;
 			}
 			g_config.save();
 			// 服务端场次是唯一权威(GLOSSARY 开播/停播=服务端信令):
@@ -294,6 +315,7 @@ void do_login()
 	struct LoginResult {
 		bool ok = false;
 		std::string message;
+		std::string refreshToken; // mini-login-v2 poll 的 App OAuth 凭证
 	};
 	auto result = std::make_shared<LoginResult>();
 
@@ -331,7 +353,7 @@ void do_login()
 				if (Http::HttpClient::isStopping())
 					return;
 				std::string pollMsg;
-				if (Bili::BiliApi::qrLogin(qrKey, pollMsg)) {
+				if (Bili::BiliApi::qrLogin(qrKey, result->refreshToken, pollMsg)) {
 					result->ok = true;
 					return;
 				}
@@ -352,6 +374,12 @@ void do_login()
 		guarded([result]() {
 			end_action();
 			if (result->ok) {
+				// 官方 H5 把 poll 的 refresh_token 交给原生换 access_key。
+				// 先落盘,再走 refresh_login_chain(它会用该 token 换 access_key)。
+				if (!result->refreshToken.empty()) {
+					g_config.config().refresh_token = result->refreshToken;
+					g_config.save();
+				}
 				refresh_login_chain();
 				return;
 			}
@@ -362,7 +390,7 @@ void do_login()
 		}));
 }
 
-// ADR-0005(推翻 ADR-0001 写回链):插件**不再写** OBS 服务配置——开播所得线路
+// ADR-0005:插件不写 OBS 服务配置——开播所得线路
 // 全部只读展示(地址/推流码可复制),用户在 OBS「设置→直播」里自行填写。
 // 保持的那条轴:插件从不点 OBS「开始直播」。
 
@@ -452,6 +480,7 @@ void do_start_live(bool with_backup)
 		std::string backupCode;
 		std::vector<Bili::Config::StreamTarget> targets;
 		std::string faceQr;
+		std::string facePage;
 		std::string mid;
 	};
 	auto result = std::make_shared<StartResult>();
@@ -477,7 +506,10 @@ void do_start_live(bool with_backup)
 			result->ok = Bili::BiliApi::startLive(
 				config, result->addr, result->code, result->message, result->faceQr, result->mid,
 				with_backup, with_backup ? &result->backupAddr : nullptr,
-				with_backup ? &result->backupCode : nullptr);
+				with_backup ? &result->backupCode : nullptr, &result->facePage);
+			// startLive 把 protocols[]/protocols_backup[] 全量写进 config 的副本;
+			// 必须带回 UI 线程,否则成功分支会把 stream_targets 覆盖成空表。
+			result->targets = config.stream_targets;
 		},
 		guarded([result]() {
 			end_action();
@@ -500,6 +532,12 @@ void do_start_live(bool with_backup)
 					   "开播成功,已获取 " + std::to_string(n) +
 						   " 条推流线路(地址/推流码可复制);插件未修改 OBS 配置,请手动填入 OBS 推流设置后点\"开始直播\"" +
 						   (result->message.empty() ? "" : " — " + result->message));
+			} else if (!result->facePage.empty()) {
+				// 60043: auth-middle 是网页不是二维码,按官方直接开认证窗口。
+				const bool shown = Core::openInBrowser(result->facePage);
+				set_status(LEVEL_WARNING,
+					   shown ? "需要人脸认证:认证页已在浏览器打开,完成后重新开播"
+						 : "需要人脸认证,请手动访问: " + result->facePage);
 			} else if (!result->faceQr.empty()) {
 				// 60024: show the face-auth QR through the browser, same
 				// channel as the login QR.
@@ -518,6 +556,14 @@ void do_start_live(bool with_backup)
 
 void do_stop_live()
 {
+	// 官方 CloseLiveRoomPre 的顺序是「先停流(输出)再停播(信令)」。
+	// 插件不驱动 OBS 输出(ADR-0001/0005),因此推流仍在进行时先提示用户
+	// 在 OBS 停止推流,避免房间已关而画面上传仍在继续。
+	if (obs_frontend_streaming_active()) {
+		set_status(LEVEL_WARNING,
+			   "请先在 OBS 点击「停止推流」,再点「停播」(官方顺序:先停流再停播)");
+		return;
+	}
 	if (!begin_action("停播"))
 		return;
 	auto config = g_config.config();
@@ -1020,6 +1066,8 @@ void ConsoleCreate()
 {
 	g_alive = true;
 	g_config.load();
+	// App OAuth 身份随公共参数发送(官方 FUN_180063f70 恒注 access_key)。
+	Bili::BiliApi::setAccessKey(g_config.config().access_key);
 	g_draft_title = g_config.config().title;
 	g_draft_part = g_config.config().part_id;
 	g_draft_area = g_config.config().area_id;
