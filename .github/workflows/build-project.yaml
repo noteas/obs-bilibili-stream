@@ -178,7 +178,9 @@ jobs:
       # 新 ref 的全新 pull 不触发,仅合并更新触发)。tmpfs 完整支持 rename 语义,
       # /var/lib/flatpak 挂 tmpfs 后所有 ostree 写离开 overlayfs ⇒ 故障路径消失。
       # 代价 = 每次全新拉取 runtime(镜像预置被遮,数分钟)。
-      options: --privileged --tmpfs /var/lib/flatpak:size=8g
+      # 必须显式 exec:docker --tmpfs 默认含 noexec,SDK 部署在 tmpfs 上的
+      # cmake/ninja 在 bwrap 沙箱里 execvp 报 Permission denied(run 45859467119)。
+      options: --privileged --tmpfs /var/lib/flatpak:rw,exec,size=8g
     defaults:
       run:
         shell: bash
