@@ -979,7 +979,11 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 								       : target["protocol"].string_value();
 		t.provider = target["provider"].string_value();
 		t.addr = target["addr"].string_value();
-		t.key = live_key;
+		// 直连线路的推流码 = 条目自带 code("?streamname=…&key=…"查询串)。
+		// 实证(2026-11-26 实网):拿 live_key 当推流码会被 edge 在 publish 后
+		// ~0.4s 内拒绝(EPIPE);live_key 只是官方解析器的内部配对存储(§4.1 第5步),
+		// 不是推流用key。code 缺失(如鉴权在 URL 内的线路)才回落 live_key。
+		t.key = target["code"].string_value().empty() ? live_key : target["code"].string_value();
 		obs_log(LOG_INFO, "开播线路: protocol=%s provider=%s new_link=%s addr=%s",
 			t.protocol.c_str(), t.provider.c_str(),
 			target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
@@ -989,7 +993,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		valid = true;
 		if (t.protocol == "rtmp" && rtmp_addr.empty()) {
 			rtmp_addr = t.addr;
-			rtmp_code = live_key;
+			rtmp_code = t.key;
 		}
 	}
 	if (!valid) {
@@ -1022,7 +1026,8 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 								       : target["protocol"].string_value();
 		t.provider = target["provider"].string_value();
 		t.addr = target["addr"].string_value();
-		t.key = live_key;
+		// 与主流同构:直连备流线路同样用条目自带 code(见上,实证)。
+		t.key = target["code"].string_value().empty() ? live_key : target["code"].string_value();
 		t.backup = true;
 		obs_log(LOG_INFO, "备流线路: protocol=%s provider=%s new_link=%s addr=%s",
 			t.protocol.c_str(), t.provider.c_str(),
@@ -1032,7 +1037,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		config.stream_targets.push_back(t);
 		if (backup_addr && backup_code && t.protocol == "rtmp" && !backup_rtmp) {
 			*backup_addr = t.addr;
-			*backup_code = live_key;
+			*backup_code = t.key;
 			backup_rtmp = true;
 		}
 	}

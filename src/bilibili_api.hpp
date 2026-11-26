@@ -36,13 +36,12 @@ struct Config {
 		std::string protocol; // rtmp / srt / bmtsrt / bmt …(官方给什么展示什么)
 		std::string provider; // txy / qn / …(可空)
 		std::string addr;
-		std::string key;     // rtmp:与 live_key 配对;srt:可能为空(鉴权在 URL 内)
+		std::string key;     // 直连线路推流码=响应条目自带 code(缺则 live_key);见契约 §4.1 第5步
 		bool backup = false; // 来自 protocols_backup[]
 	};
 	std::vector<StreamTarget> stream_targets;
-	// 备流参数探针(隐藏配置,不进 UI):备流 builder 的 param_9/param_10 实参
-	// 只在 app 层可见,静态分析不可达。非空才注入,用于一次性实测补钉 U6;
-	// 钉死后收敛为常量。空 = 现状(不猜值)。
+	// 备流参数探针(隐藏配置,不进 UI):U6 已闭合(E-19,官方恒传 2/"Paylive"),
+	// builder 默认恒注官方值;探针非空时覆盖,保留作实网复核通道。
 	std::string backup_stream_type_probe;
 	std::string stream_biz_probe;
 	std::string rtmp_backup_addr; // 首条 rtmp 备流的便捷副本(日志/兼容)

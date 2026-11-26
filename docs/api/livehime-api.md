@@ -473,9 +473,9 @@ U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);bu
 2. 解析 `room_type`(int)、`need_face_auth`(bool)、`qr`(string);
 3. 协议默认值写入字面量 `"rtmp"`(0x706d7472 小端, 实证);
 4. 读 `data.live_key`;
-5. `data.protocols[]` 非空 → 逐条转 StreamTarget(字段 `protocol/addr/new_link/provider`, 与 live_key 配对, F-1801ef020);
+5. `data.protocols[]` 非空 → 逐条转 StreamTarget(字段 `protocol/addr/new_link/provider`, 与 live_key 配对, F-1801ef020);**直连推流(addr 非空)的推流码 = 条目自带 `code`**(实网实证 2026-11-26:拿 live_key 当推流码,edge 在 publish 后 ~0.4s 拒绝连接/EPIPE;live_key 仅为官方客户端内部会话配对存储,不是推流密钥);
 6. 否则旧式回落: **`rtmp.new_link` 必须存在**(缺→无效), 再读 `rtmp.code`、`rtmp.addr`(addr 存在=有效);
-7. `data.protocols_backup[]` 同 5;
+7. `data.protocols_backup[]` 同 5(含 code 推流码规则);
 8. `data.xcode_stream[]` 逐项 memcmp 目标协议 → 取子对象 `protocols`(协议↔xcode 后缀映射);
 9. 3-8 后无效 → `Parse open-live-room failure: missing fields!` + 原文 → 失败;
 10. 成功 → 日志 `pay live rtmp_info.addr: / new_link: / key:` → 地址+密钥交 OBS;
@@ -507,9 +507,12 @@ U6 已闭合(E-19:官方恒传 `backup_stream_type=2`/`stream_biz="Paylive"`);bu
   `vt[0xf8]`/`vt[0x100]` = room_id/area_v2/src/checked;`src` 值域 =
   `get_stream_by_roomId` 响应 `data.stream_line[].src`(E-19 §三)。
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
-- 仓库: 参数与官方对齐(checked/type/透传已补);响应解析按 F-180144bb0 第2-10步移植
-  (protocols[]↔live_key 配对、rtmp.new_link 存在性校验、need_face_auth 阻断、
-  notice 阻断 B4①、v_voucher 透出);第7步 `protocols_backup[]` 与 live_key 配对存储,
+- 仓库: 参数与官方对齐(checked/type/透传已补;备流请求默认恒注
+  `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`,E-19 对齐 2026-11-26);
+  响应解析按 F-180144bb0 第2-10步移植
+  (protocols[]↔live_key 会话配对存储,但直连线路推流键=条目自带 `code`——
+  实网实证修正 2026-11-26,见第5步注、rtmp.new_link 存在性校验、need_face_auth 阻断、
+  notice 阻断 B4①、v_voucher 透出);第7步 `protocols_backup[]` 同规则,
   备流与多协议线路**全部只读展示**(`config.stream_targets`,地址/推流码可复制),
   插件不写 OBS 配置(ADR-0005)。**多路/xcode_stream 为明确不做项**(联播范围外)。
 
