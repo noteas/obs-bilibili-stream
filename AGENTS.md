@@ -25,6 +25,13 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 ### Ghidra 使用准则（2026-11-26 确立，详见 `re/GHIDRA-NOTES.md`）
 
+- **第一准则：系统思维，禁止死磕汇编（2026-11-26 用户红线）**。反编译可以、看汇编可以，但**陷入复杂局面时绝不允许逐指令死磕**——死磕是没用的，你死磕不了。每次卡住，按此清单系统反思，而不是继续往下钻：
+  1. **有必要吗**——现在的粒度（指令级/函数级/类级）是不是解决问题的最小粒度？能否先跳到更高维度？
+  2. **有没有更好的方法**——Ghidra 的便利功能是不是全用上了：官方增值脚本（RecoverClassesFromRTTIScript / StringParameterPropagator / Decompiler Parameter ID）、反编译器（读高语言视图而非汇编）、xref（数据/代码引用）、Data Type Manager（结构体字段）、字符串？
+  3. **全量分析的产出用上了没有**——完整的分析管线已产出字符串、RTTI 类名、vftable、参数类型、结构体。出现 `UNDEFINED`/`FUN_xxx`/`undefined8` 是分析没吃透的信号，先补分析（RTTI 类恢复等官方脚本），不是自己拿汇编硬猜。
+  4. **我目前掌握了哪些信息**——先把已知事实清点出来（字符串目录、类名、URL、符号表命中），从已知推向未知，而不是跳进未知啃指令。
+  5. **有没有其他突破口**——字符串、RTTI 字符串、源码路径、URL、已知类的方法、别的入口函数。换一个突破口常常比死磕快一个量级。
+- **二进制内嵌源码路路径 = 头号突破口**：LiveHime/secret 的二进制内嵌 `..\..\..\bililive\secret\...\*.h:行号` 与 `*.c*:行号`（LOG/CHECK/assert 宏的 `__FILE__`/`__LINE__`）及完整端点 URL 字符串。**这是官方从来不公开、但二进制自带的"目录册"**——遇到不认识的功能或函数，先 `strings` 全量 dump 源码路径/文件名清单，用它定位函数归属与语义，比反编译快一个量级。
 - **废弃旧打法**：不要再「复用旧工程 + `-noanalysis` + 定向 DumpVAs」一条路走到黑——它跳过整个分析管线，产物里全是 `UNK_*`、`FUN_xxx`、`undefined8`，字符串/RTTI/vftable/参数全没建出来。
 - **工程粒度 = 整个直播姬**：livehime.exe / bililive.dll / bililive_secret.dll 是**同一程序的三件套**，一律放**同一个 Ghidra 工程** `re/ghidra_full`（livehime_full）内、每个二进制一个 Program——**不要按 DLL 拆工程**（跨 DLL 虚表槽位/符号/调用点对照只有同工程才顺手）。bililive.dll 于 11-26 全分析完成；bililive_secret.dll 原被误拆到 `ghidra_secret`，2026-11-26 并入联合工程重新全分析；livehime.exe 待并入。
 - **新二进制第一件事 = 完整分析**：`-import` 进统一工程（默认开全部分析器），用 `-analysisTimeoutPerFile`、`-max-cpu` 兜底，并**显式给堆**——headless 默认仅 2G，70MB 级必 OOM（用 `GHIDRA_HEADLESS_MAXMEM=16G`，实测 70MB 级一次 20~40 分钟；35MB 级如 secret.dll 8G 堆约 8 分钟足够）。
