@@ -1,0 +1,3 @@
+[submodule "third_party/obs-rtmp-srt"]
+	path = third_party/obs-rtmp-srt
+	url = https://github.com/noteas/obs-rtmp-srt.git

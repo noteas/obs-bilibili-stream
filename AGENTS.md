@@ -12,6 +12,7 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 - `src/http_client.*` — libcurl 传输 + cookie jar;请求头/指纹的唯一出口
 - `src/plugin-main.cpp`、`src/ui/` — OBS 原生 UI:工具菜单 + 隐藏私有 source「控制台」的 obs_properties(OBS 自己渲染,插件运行期只依赖 libobs/obs-frontend-api/libcurl,见 ADR-0003)
 - `src/md5`、`src/json11`、`src/qrcodegen` — vendored,保持不动
+- `third_party/obs-rtmp-srt` — git submodule,own fork(基线 = 上游 OBS 32.2.0 的 `librtmp` + `rtmp-stream`/`flv-mux` 逐字导入)。rtmpsrt 重实现的载体:**RTMP/FLV/AMF 逻辑零改动,只在 socket 层加 SRT 分支**,SRT 改造全部落在本 fork、不在主仓手搓协议(见 ADR-0008、E-27)
 - `docs/api/livehime-api.md` — **端点契约**:增/改任何请求参数、请求头、响应字段前必读,那里有每个字段的注入条件与官方解析顺序;契约里没有的字段 = 先补逆向再实现,不许猜
 - `docs/roadmap.md` — 里程碑与缺口状态;每个里程碑收尾必须同步它
 - `docs/adr/` — 架构决策。提出与任一 ADR 相左的方案前先读对应 ADR
