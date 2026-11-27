@@ -393,7 +393,7 @@ static HttpResponse perform(const std::string &url, const std::string *body, boo
 	response.status = 0;
 	CURL *curl = curl_easy_init();
 	if (!curl) {
-		response.data = "CURL 初始化失败";
+		response.data = Utils::Text("Http.CurlInitFail");
 		return response;
 	}
 
@@ -421,7 +421,7 @@ static HttpResponse perform(const std::string &url, const std::string *body, boo
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
 		response.timeout = (res == CURLE_OPERATION_TIMEDOUT);
-		response.data = std::string("网络错误: ") + curl_easy_strerror(res);
+		response.data = Utils::Text("Http.NetworkError", curl_easy_strerror(res));
 		response.status = 0;
 		curl_slist_free_all(header_list);
 		curl_easy_cleanup(curl);

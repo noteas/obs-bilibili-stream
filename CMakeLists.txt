@@ -91,3 +91,6 @@ set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_nam
 
 # Install plugin and dependencies
 install(TARGETS ${CMAKE_PROJECT_NAME} LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/obs-plugins/64bit")
+# data 文件：OBS 模板 %module%/data。只装 locale（缺 locale 时 obs_module_text 只回显键名）；
+# data/config.json 是开发遗留样例，不随插件分发（运行期配置走 obs_module_config_path）。
+install(DIRECTORY data/locale/ DESTINATION "${CMAKE_INSTALL_PREFIX}/data/obs-plugins/${CMAKE_PROJECT_NAME}/locale")

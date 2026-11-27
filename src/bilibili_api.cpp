@@ -109,14 +109,14 @@ bool BiliApi::getQrCode(std::string &qr_data, std::string &qr_key, std::string &
 	// 官方 mini-login-v2 的 generate 带 source=$(origin)(LiveHime 为
 	// main_electron_pc)与 go_url;这里与官方请求形状对齐(poll 的
 	// refresh_token 已不再消费,见 qrLogin)。
-	auto response = Http::HttpClient::get(
-		"https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
-		"?source=main_electron_pc");
+	auto response = Http::HttpClient::get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+					      "?source=main_electron_pc");
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "获取二维码失败，状态码: %d, 数据: %s", response.status, response.data.c_str());
-		message = "获取二维码失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.Qr").c_str(),
+				      std::to_string(response.status).c_str());
 		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
+			message += Utils::Text("Api.DataSuffix", response.data.c_str());
 		}
 		return false;
 	}
@@ -124,32 +124,33 @@ bool BiliApi::getQrCode(std::string &qr_data, std::string &qr_key, std::string &
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty()) {
-		message = "Json 解析失败: " + err;
+		message = Utils::Text("Api.FailJsonParse", err.c_str());
 		return false;
 	}
 
 	qr_data = json["data"]["url"].string_value();
 	qr_key = json["data"]["qrcode_key"].string_value();
 	if (qr_data.empty() || qr_key.empty()) {
-		message = "无法提取二维码数据或密钥";
+		message = Utils::Text("Api.QrNoData");
 		return false;
 	}
 
-	message = "获取二维码成功，URL: " + qr_data + ", Key: " + qr_key;
+	message = Utils::Text("Api.QrOk", qr_data.c_str(), qr_key.c_str());
 	return true;
 }
 
-bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
+bool BiliApi::qrLogin(const std::string &qr_key, std::string &message, bool *expired)
 {
 	std::string url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qr_key +
 			  "&source=main_electron_pc";
 	auto response = Http::HttpClient::get(url);
 	obs_log(LOG_INFO, "检查二维码登录状态: %s", response.data.c_str());
 	if (response.status != 200) {
-		message = "检查二维码登录状态失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.QrPoll").c_str(),
+				      std::to_string(response.status).c_str());
 		if (!response.data.empty()) {
 
-			message += ", 数据: " + response.data;
+			message += Utils::Text("Api.DataSuffix", response.data.c_str());
 		}
 		return false;
 	}
@@ -158,7 +159,7 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty()) {
 		obs_log(LOG_ERROR, "JSON 解析失败: %s", err.c_str());
-		message = "JSON 解析失败: " + err;
+		message = Utils::Text("Api.FailJsonParse", err.c_str());
 		return false;
 	}
 
@@ -166,15 +167,16 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 	if (code != 0) {
 		if (code == 86038) {
 			obs_log(LOG_ERROR, "二维码已失效: %s", json["message"].string_value().c_str());
-			message = "二维码已失效: " + json["message"].string_value();
+			message = Utils::Text("Api.QrInvalid", json["message"].string_value().c_str());
+			if (expired)
+				*expired = true;
 		} else if (code == 86090) {
 			obs_log(LOG_INFO, "二维码已扫描，等待确认");
-			message = "二维码已扫描，等待确认";
+			message = Utils::Text("Api.QrScanned");
 		} else {
 			obs_log(LOG_ERROR, "API 返回错误，code: %d, message: %s", code,
 				json["message"].string_value().c_str());
-			message = "API 返回错误，code: " + std::to_string(code) +
-				  ", message: " + json["message"].string_value();
+			message = Utils::Text("Api.ApiError", code, json["message"].string_value().c_str());
 		}
 		return false;
 	}
@@ -217,11 +219,11 @@ bool BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 	}
 	if (!Http::HttpClient::has_cookie("SESSDATA")) {
 		obs_log(LOG_ERROR, "无法获取登录 Cookies");
-		message = "无法获取登录 Cookies";
+		message = Utils::Text("Api.NoCookies");
 		return false;
 	}
 
-	message = "二维码登录成功";
+	message = Utils::Text("Api.QrLoginOk");
 	return true;
 }
 
@@ -230,13 +232,15 @@ bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 	// Contract §2.9: the official nav builder carries appsign (no business
 	// params, just ts/appkey/sign).
 	std::vector<std::pair<std::string, std::string>> nav_params = {{"ts", std::to_string(time(nullptr))}};
-	std::string nav_url = "https://api.bilibili.com/x/web-interface/nav?" + appsign(nav_params, APP_KEY, APP_SECRET);
+	std::string nav_url =
+		"https://api.bilibili.com/x/web-interface/nav?" + appsign(nav_params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(nav_url);
 	obs_log(LOG_INFO, "检查登录状态: %s", response.data.c_str());
 	if (response.status != 200) {
-		message = "检查登录状态失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.LoginCheck").c_str(),
+				      std::to_string(response.status).c_str());
 		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
+			message += Utils::Text("Api.DataSuffix", response.data.c_str());
 		}
 		return false;
 	}
@@ -245,7 +249,7 @@ bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty()) {
 		obs_log(LOG_ERROR, "JSON 解析失败: %s", err.c_str());
-		message = "JSON 解析失败: " + err;
+		message = Utils::Text("Api.FailJsonParse", err.c_str());
 		return false;
 	}
 
@@ -254,7 +258,8 @@ bool BiliApi::checkLoginStatus(std::string &message, std::string &mid)
 		mid = std::to_string(static_cast<long long>(json["data"]["mid"].number_value()));
 	}
 	obs_log(LOG_INFO, "检查登录状态: %s", is_login ? "已登录" : "未登录");
-	message = "检查登录状态: " + std::string(is_login ? "已登录" : "未登录");
+	message = Utils::Text("Api.LoginState",
+			      (is_login ? Utils::Text("Api.IsLoggedIn") : Utils::Text("Api.NotLoggedIn")).c_str());
 	return is_login;
 }
 
@@ -263,7 +268,7 @@ bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, st
 	const std::string dede_user_id = Http::HttpClient::cookie_value("DedeUserID");
 	if (dede_user_id.empty()) {
 		obs_log(LOG_ERROR, "Cookie 中无 DedeUserID");
-		message = "Cookie 中无 DedeUserID";
+		message = Utils::Text("Api.NoDedu");
 		return false;
 	}
 
@@ -274,18 +279,18 @@ bool BiliApi::getRoomIdAndCsrf(std::string &room_id, std::string &csrf_token, st
 	std::string stateMessage;
 	json11::Json data = getRoomInfoByUid(dede_user_id, stateMessage);
 	if (!data.is_object()) {
-		message = "获取房间号失败: " + stateMessage;
+		message = Utils::Text("Api.RoomIdFail", stateMessage.c_str());
 		return false;
 	}
 	const long long rid = (long long)data["room_id"].number_value();
 	if (rid <= 0) {
-		message = "room/GetInfo 响应无有效 room_id";
+		message = Utils::Text("Api.RoomIdMissing");
 		return false;
 	}
 	room_id = std::to_string(rid);
 	csrf_token = Http::HttpClient::cookie_value("bili_jct");
 	if (csrf_token.empty()) {
-		message = "无法从 Cookies 中提取 bili_jct";
+		message = Utils::Text("Api.NoJct");
 		return false;
 	}
 	return true;
@@ -297,9 +302,10 @@ json11::Json BiliApi::getPartitionList(std::string &message)
 	obs_log(LOG_INFO, "获取分区列表: %s", response.data.c_str());
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "获取分区列表失败，状态码: %d", response.status);
-		message = "获取分区列表失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.Partitions").c_str(),
+				      std::to_string(response.status).c_str());
 		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
+			message += Utils::Text("Api.DataSuffix", response.data.c_str());
 		}
 		return json11::Json();
 	}
@@ -307,10 +313,11 @@ json11::Json BiliApi::getPartitionList(std::string &message)
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || !json["data"].is_array()) {
-		message = "解析分区列表失败: " + std::string(err.empty() ? "无数据数组" : err);
+		message = Utils::Text("Api.FailParse", Utils::Text("Ep.Partitions").c_str(),
+				      (err.empty() ? Utils::Text("Api.PartNoData") : err).c_str());
 		return json11::Json();
 	}
-	message = "获取分区列表成功";
+	message = Utils::Text("Api.PartOk");
 	return json["data"];
 }
 
@@ -328,13 +335,15 @@ bool BiliApi::ensureVersionInfo(std::string &message)
 
 	auto version_response = Http::HttpClient::get(version_url);
 	if (version_response.status != 200) {
-		message = "获取直播版本信息失败，状态码: " + std::to_string(version_response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.Version").c_str(),
+				      std::to_string(version_response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(version_response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "解析直播版本信息失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", Utils::Text("Ep.Version").c_str(),
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	g_build = json["data"]["build"].int_value();
@@ -342,7 +351,7 @@ bool BiliApi::ensureVersionInfo(std::string &message)
 	if (g_build == 0 || g_curr_version.empty()) {
 		g_build = 0;
 		g_curr_version.clear();
-		message = "无效的 build 或 curr_version";
+		message = Utils::Text("Api.VersionInvalid");
 		return false;
 	}
 	obs_log(LOG_INFO, "直播版本信息: build=%ld curr_version=%s", g_build, g_curr_version.c_str());
@@ -364,7 +373,7 @@ bool BiliApi::propagateSso(std::string &message)
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "SSO 列表获取失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.SsoFail", (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	int followed = 0;
@@ -375,7 +384,7 @@ bool BiliApi::propagateSso(std::string &message)
 		Http::HttpClient::get_following(entry.string_value());
 		++followed;
 	}
-	message = "SSO 传播完成(" + std::to_string(followed) + " 个域)";
+	message = Utils::Text("Api.SsoDone", followed);
 	obs_log(LOG_INFO, "%s", message.c_str());
 	return true;
 }
@@ -383,7 +392,7 @@ bool BiliApi::propagateSso(std::string &message)
 bool BiliApi::changeRoomArea(const Config &config, int area_id, std::string &message)
 {
 	if (config.room_id.empty() || config.csrf_token.empty()) {
-		message = "配置无效: 房间号/CSRF 缺失";
+		message = Utils::Text("Api.ConfigInvalid");
 		return false;
 	}
 	if (!ensureVersionInfo(message))
@@ -405,13 +414,15 @@ bool BiliApi::changeRoomArea(const Config &config, int area_id, std::string &mes
 		"https://api.live.bilibili.com/xlive/app-blink/v2/room/AnchorChangeRoomArea", data);
 	obs_log(LOG_INFO, "改分区: %s", response.data.c_str());
 	if (response.status != 200) {
-		message = "改分区失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.Partition").c_str(),
+				      std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "改分区失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", Utils::Text("Ep.Partition").c_str(),
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	obs_log(LOG_INFO, "分区更新成功: area_id=%d", area_id);
@@ -431,17 +442,18 @@ json11::Json BiliApi::getRoomInfo(const std::string &endpoint, const std::string
 	};
 	auto cp = common_params();
 	params.insert(params.end(), cp.begin(), cp.end());
-	std::string url = "https://api.live.bilibili.com/xlive/app-room/v1/index/" + endpoint +
-			  "?" + appsign(params, APP_KEY, APP_SECRET);
+	std::string url = "https://api.live.bilibili.com/xlive/app-room/v1/index/" + endpoint + "?" +
+			  appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = endpoint + " 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", endpoint.c_str(), std::to_string(response.status).c_str());
 		return json11::Json();
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = endpoint + " 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", endpoint.c_str(),
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return json11::Json();
 	}
 	return json["data"];
@@ -454,17 +466,18 @@ json11::Json BiliApi::getRoomInfoByUid(const std::string &mid, std::string &mess
 	std::vector<std::pair<std::string, std::string>> params = {{"uId", mid}};
 	auto cp = common_params();
 	params.insert(params.end(), cp.begin(), cp.end());
-	std::string url = "https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?" +
-			  appsign(params, APP_KEY, APP_SECRET);
+	std::string url =
+		"https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?" + appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "room/GetInfo 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "room/GetInfo", std::to_string(response.status).c_str());
 		return json11::Json();
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "room/GetInfo 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "room/GetInfo",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return json11::Json();
 	}
 	return json["data"];
@@ -473,7 +486,7 @@ json11::Json BiliApi::getRoomInfoByUid(const std::string &mid, std::string &mess
 bool BiliApi::updatePreLiveInfo(const Config &config, const std::string &title, std::string &message)
 {
 	if (config.room_id.empty() || config.csrf_token.empty()) {
-		message = "配置无效: 房间号/CSRF 缺失";
+		message = Utils::Text("Api.ConfigInvalid");
 		return false;
 	}
 	// Builder F-180151c10, instruction-level: appsign runs over the COMMON
@@ -492,13 +505,15 @@ bool BiliApi::updatePreLiveInfo(const Config &config, const std::string &title, 
 		"https://api.live.bilibili.com/xlive/app-blink/v1/preLive/UpdatePreLiveInfo", data);
 	obs_log(LOG_INFO, "更新播前资料: %s", response.data.c_str());
 	if (response.status != 200) {
-		message = "更新播前资料失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.PreLive").c_str(),
+				      std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "更新播前资料失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", Utils::Text("Ep.PreLive").c_str(),
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	obs_log(LOG_INFO, "播前资料更新成功: title_length=%zu", title.size());
@@ -515,28 +530,29 @@ bool BiliApi::preLiveCheck(std::string &block_message)
 			  appsign(common_params(), APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		block_message = "PreCheck 失败，状态码: " + std::to_string(response.status);
+		block_message = Utils::Text("Api.FailStatus", "PreCheck", std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		block_message = "PreCheck 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		block_message =
+			Utils::Text("Api.FailParse", "PreCheck", (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	obs_log(LOG_INFO, "PreCheck: %s", response.data.c_str());
 	// 实网回读字段:实名未过则阻断(0=未实名)。
 	if (json["data"].is_object() && !json["data"]["realname_status"].is_null() &&
 	    json["data"]["realname_status"].int_value() == 0) {
-		block_message = "开播被阻断: 账号实名未通过(PreCheck realname_status=0)";
+		block_message = Utils::Text("Api.RealnameBlocked");
 		return false;
 	}
 	// PreLiveBizCheck 解析组(E-10 @0x112cfad): game_promotion.need_notice = 合规/推广弹窗阻断。
 	// 实测本会话响应无此键,保留解析以防服务端按场景下发。
 	const json11::Json promo = json["data"]["game_promotion"];
 	if (promo.is_object() && promo["need_notice"].bool_value()) {
-		block_message = "开播被合规提示阻断: " + promo["title"].string_value() + " - " +
-				promo["content"].string_value();
+		block_message = Utils::Text("Api.ComplianceBlocked", promo["title"].string_value().c_str(),
+					    promo["content"].string_value().c_str());
 		obs_log(LOG_WARNING, "PreCheck game_promotion 阻断: biz_id=%d cool_down_days=%d",
 			promo["biz_id"].int_value(), promo["cool_down_days"].int_value());
 		return false;
@@ -552,13 +568,15 @@ bool BiliApi::getRoomPreLiveStatus(int &status, std::string &message)
 			  appsign(common_params(), APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "GetRoomPreLiveStatus 失败，状态码: " + std::to_string(response.status);
+		message =
+			Utils::Text("Api.FailStatus", "GetRoomPreLiveStatus", std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "GetRoomPreLiveStatus 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "GetRoomPreLiveStatus",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	status = json["data"]["status"].int_value(); // F-180447550: 唯一回读字段
@@ -579,13 +597,15 @@ json11::Json BiliApi::getActiveStream(const std::string &room_id, std::string &m
 			  appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "get_stream_by_roomId 失败，状态码: " + std::to_string(response.status);
+		message =
+			Utils::Text("Api.FailStatus", "get_stream_by_roomId", std::to_string(response.status).c_str());
 		return json11::Json();
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "get_stream_by_roomId 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "get_stream_by_roomId",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return json11::Json();
 	}
 	return json["data"];
@@ -604,13 +624,14 @@ json11::Json BiliApi::getVisibleMode(std::string &message)
 			  appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "GetVisibleMode 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "GetVisibleMode", std::to_string(response.status).c_str());
 		return json11::Json();
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "GetVisibleMode 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "GetVisibleMode",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return json11::Json();
 	}
 	return json["data"];
@@ -628,13 +649,14 @@ bool BiliApi::getUpStreamRtmp(const std::string &room_id, bool &can_change, std:
 			  appsign(params, APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "GetUpStreamRtmp 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "GetUpStreamRtmp", std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "GetUpStreamRtmp 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "GetUpStreamRtmp",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	can_change = json["data"]["can_change"].bool_value();
@@ -655,13 +677,15 @@ json11::Json BiliApi::videoQualityConfig(std::string &message)
 			  appsign(common_params(), APP_KEY, APP_SECRET) + "&bitrate_intervention=1";
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "GetUpStreamVideoQualityConfig 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "GetUpStreamVideoQualityConfig",
+				      std::to_string(response.status).c_str());
 		return json11::Json();
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "GetUpStreamVideoQualityConfig 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "GetUpStreamVideoQualityConfig",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return json11::Json();
 	}
 	obs_log(LOG_INFO, "视频质量配置: %s", response.data.c_str());
@@ -677,13 +701,14 @@ bool BiliApi::canUseH265Encoder(bool &can_enable, std::string &message)
 			  appsign(common_params(), APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "CanUseH265Encoder 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "CanUseH265Encoder", std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "CanUseH265Encoder 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "CanUseH265Encoder",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	can_enable = json["data"]["can_enable"].bool_value(); // F-1802d08c0: 唯一回读字段
@@ -699,13 +724,14 @@ bool BiliApi::canUseAv1Encoder(bool &can_hard_encode, std::string &message)
 			  appsign(common_params(), APP_KEY, APP_SECRET);
 	auto response = Http::HttpClient::get(url);
 	if (response.status != 200) {
-		message = "CanUseAV1Encoder 失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", "CanUseAV1Encoder", std::to_string(response.status).c_str());
 		return false;
 	}
 	std::string err;
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty() || json["code"].int_value() != 0) {
-		message = "CanUseAV1Encoder 失败: " + (err.empty() ? jsonErrorMessage(json) : err);
+		message = Utils::Text("Api.FailParse", "CanUseAV1Encoder",
+				      (err.empty() ? jsonErrorMessage(json) : err).c_str());
 		return false;
 	}
 	can_hard_encode = json["data"]["can_hard_encode"].bool_value(); // F-1802d0f30: 唯一回读字段
@@ -713,13 +739,12 @@ bool BiliApi::canUseAv1Encoder(bool &can_hard_encode, std::string &message)
 }
 
 bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtmp_code, std::string &message,
-			std::string &face_qr, std::string &mid, bool with_backup,
-			std::string *face_page_url)
+			std::string &face_qr, std::string &mid, bool with_backup, std::string *face_page_url)
 {
 	if (config.room_id.empty() || config.csrf_token.empty()) {
 		obs_log(LOG_ERROR, "配置无效: room_id=%s, csrf_token=%s, title=%s", config.room_id.c_str(),
 			config.csrf_token.c_str(), config.title.c_str());
-		message = "配置无效: 房间号=" + config.room_id + ", csrf_token=" + config.csrf_token;
+		message = Utils::Text("Api.ConfigInvalidDetail", config.room_id.c_str(), config.csrf_token.c_str());
 		return false;
 	}
 
@@ -762,14 +787,12 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 				privilege, vm["visible_mode"].int_value(), vm["guard_visible_type"].int_value());
 			backup_gate = privilege == 5;
 			if (!backup_gate)
-				message = "本账号 upower_privilege_type=" + std::to_string(privilege) +
-					"(官方规则:仅 =5 走备流开播),已按官方普通开播请求发送";
+				message = Utils::Text("Api.NoBackupPriv", privilege);
 		}
 		if (backup_gate) {
 			backup_requested = true;
 			std::string streamMsg;
-			const json11::Json lines =
-				getActiveStream(config.room_id, streamMsg)["stream_line"];
+			const json11::Json lines = getActiveStream(config.room_id, streamMsg)["stream_line"];
 			// src 值域已定为数字(G1),防御性兼容字符串:原样透传,不猜。
 			auto src_of = [](const json11::Json &line) {
 				const json11::Json s = line["src"];
@@ -788,7 +811,8 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 					break;
 				}
 			}
-			if (src_value.empty() && !lines.array_items().empty() && src_of(lines.array_items()[0]) != "null")
+			if (src_value.empty() && !lines.array_items().empty() &&
+			    src_of(lines.array_items()[0]) != "null")
 				src_value = src_of(lines.array_items()[0]);
 			if (src_value.empty())
 				obs_log(LOG_WARNING, "stream_line 取不到 src(%s),备流请求将不带 src 发送",
@@ -810,12 +834,13 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 
 	// 官方 LiveStreamingService.StartLive 的调用超时是 60,000 ms
 	// (LIVE-CHAIN §2.6 / FUN_180d5f5e0);默认 10s 会在服务端排队时误判失败。
-	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/startLive", start_data,
-					       60000);
+	auto response =
+		Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/startLive", start_data, 60000);
 	obs_log(LOG_INFO, "启动直播: %s", response.data.c_str());
 	if (response.status != 200) {
 		obs_log(LOG_ERROR, "启动直播失败，状态码: %ld", response.status);
-		message = "启动直播失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.StartLive").c_str(),
+				      std::to_string(response.status).c_str());
 		return false;
 	}
 
@@ -823,7 +848,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	json11::Json json = json11::Json::parse(response.data, err);
 	if (!err.empty()) {
 		obs_log(LOG_ERROR, "解析开播响应失败: %s", err.c_str());
-		message = "解析开播响应失败: " + err;
+		message = Utils::Text("Api.FailParse", Utils::Text("Ep.StartLive").c_str(), err.c_str());
 		return false;
 	}
 
@@ -839,10 +864,10 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		const std::string title = notice["title"].string_value();
 		const std::string msg = notice["msg"].string_value();
 		if (!title.empty() || !msg.empty()) {
-			notice_line = (title.empty() ? "服务端提示" : title) + ": " + msg;
+			notice_line = (title.empty() ? Utils::Text("Api.ServerNotice") : title) + ": " + msg;
 			const std::string url = notice["button_url"].string_value();
 			if (!url.empty())
-				notice_line += "(详情: " + url + ")";
+				notice_line += Utils::Text("Api.Detail", url.c_str());
 		}
 	}
 
@@ -850,15 +875,14 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	if (code != 0) {
 		message = notice_line.empty() ? jsonErrorMessage(json) : notice_line;
 		if (message.empty())
-			message = "开播失败，错误码: " + std::to_string(code);
+			message = Utils::Text("Api.StartErrCode", code);
 
 		// 如果是人脸识别
 		if (code == 60024) {
 			std::string face_url = json["data"]["qr"].string_value();
 			obs_log(LOG_WARNING, "60024 需要人脸识别，URL: %s", face_url.c_str());
 			// 二维码交控制台/浏览器展示,不在此处开独立对话框。
-			message = "需要人脸验证，请扫描二维码" +
-				  (face_url.empty() ? std::string() : ": " + face_url);
+			message = Utils::Text("Api.FaceQr") + (face_url.empty() ? std::string() : ": " + face_url);
 			face_qr = face_url;
 			return false;
 		}
@@ -869,7 +893,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 			std::string face_url =
 				"https://www.bilibili.com/blackboard/live/auth-middle.html?source_event=200&mid=" + mid;
 			obs_log(LOG_WARNING, "60043 需要人脸识别，URL: %s", face_url.c_str());
-			message = "需要人脸验证，请在打开的页面完成认证后重新开播: " + face_url;
+			message = Utils::Text("Api.FacePage", face_url.c_str());
 			if (face_page_url)
 				*face_page_url = face_url;
 			else
@@ -884,9 +908,8 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		if (with_backup) {
 			const std::string reject = std::to_string(code) + " " + message;
 			obs_log(LOG_WARNING, "备流开播失败(%s),回退普通开播", reject.c_str());
-			if (startLive(config, rtmp_addr, rtmp_code, message, face_qr, mid, false,
-				      face_page_url)) {
-				message = "备流被服务端拒绝(" + reject + "),本场按普通开播";
+			if (startLive(config, rtmp_addr, rtmp_code, message, face_qr, mid, false, face_page_url)) {
+				message = Utils::Text("Api.BackupRejected", reject.c_str());
 				return true;
 			}
 			obs_log(LOG_ERROR, "备流回退普通开播也失败: %s", message.c_str());
@@ -906,7 +929,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	const std::string voucher = json["data"]["risk_extra"]["v_voucher"].string_value();
 	if (!voucher.empty()) {
 		obs_log(LOG_WARNING, "开播命中风控, v_voucher=%s", voucher.c_str());
-		message = "命中服务端风控(需极验验证),凭证 " + voucher + ";请在浏览器登录直播页完成验证后重试";
+		message = Utils::Text("Api.RiskVoucher", voucher.c_str());
 		return false;
 	}
 
@@ -914,7 +937,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	if (json["data"]["need_face_auth"].bool_value()) {
 		face_qr = json["data"]["qr"].string_value();
 		obs_log(LOG_WARNING, "需要人脸认证(need_face_auth): %s", face_qr.c_str());
-		message = "需要人脸认证,请完成二维码验证后重新开播";
+		message = Utils::Text("Api.FaceAuthNeeded");
 		return false;
 	}
 
@@ -937,8 +960,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	bool valid = false;
 	for (const auto &target : json["data"]["protocols"].array_items()) {
 		Config::StreamTarget t;
-		t.protocol = target["protocol"].string_value().empty() ? "rtmp"
-								       : target["protocol"].string_value();
+		t.protocol = target["protocol"].string_value().empty() ? "rtmp" : target["protocol"].string_value();
 		t.provider = target["provider"].string_value();
 		t.addr = target["addr"].string_value();
 		// 直连线路的推流码 = 条目自带 code("?streamname=…&key=…"查询串)。
@@ -946,9 +968,8 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 		// ~0.4s 内拒绝(EPIPE);live_key 只是官方解析器的内部配对存储(§4.1 第5步),
 		// 不是推流用key。code 缺失(如鉴权在 URL 内的线路)才回落 live_key。
 		t.key = target["code"].string_value().empty() ? live_key : target["code"].string_value();
-		obs_log(LOG_INFO, "开播线路: protocol=%s provider=%s new_link=%s addr=%s",
-			t.protocol.c_str(), t.provider.c_str(),
-			target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
+		obs_log(LOG_INFO, "开播线路: protocol=%s provider=%s new_link=%s addr=%s", t.protocol.c_str(),
+			t.provider.c_str(), target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
 		if (t.addr.empty())
 			continue;
 		config.stream_targets.push_back(t);
@@ -973,7 +994,7 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	if (!valid) {
 		// 官方第9步原文案(丢字段=响应契约破坏,把原文留在日志里以便补钉)。
 		obs_log(LOG_ERROR, "解析开播响应缺字段(missing fields!),原文: %s", response.data.c_str());
-		message = "开播响应缺少推流字段(missing fields),详见日志原文";
+		message = Utils::Text("Api.MissingFields");
 		return false;
 	}
 
@@ -984,28 +1005,24 @@ bool BiliApi::startLive(Config &config, std::string &rtmp_addr, std::string &rtm
 	bool backup_received = false;
 	for (const auto &target : json["data"]["protocols_backup"].array_items()) {
 		Config::StreamTarget t;
-		t.protocol = target["protocol"].string_value().empty() ? "rtmp"
-								       : target["protocol"].string_value();
+		t.protocol = target["protocol"].string_value().empty() ? "rtmp" : target["protocol"].string_value();
 		t.provider = target["provider"].string_value();
 		t.addr = target["addr"].string_value();
 		// 与主流同构:直连备流线路同样用条目自带 code(见上,实证)。
 		t.key = target["code"].string_value().empty() ? live_key : target["code"].string_value();
 		t.backup = true;
-		obs_log(LOG_INFO, "备流线路: protocol=%s provider=%s new_link=%s addr=%s",
-			t.protocol.c_str(), t.provider.c_str(),
-			target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
+		obs_log(LOG_INFO, "备流线路: protocol=%s provider=%s new_link=%s addr=%s", t.protocol.c_str(),
+			t.provider.c_str(), target["new_link"].bool_value() ? "1" : "0", t.addr.c_str());
 		if (t.addr.empty())
 			continue;
 		config.stream_targets.push_back(t);
 		backup_received = true;
 	}
 	if (backup_requested && !backup_received)
-		obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup 直连线路(观测: %s)",
-			response.data.c_str());
+		obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup 直连线路(观测: %s)", response.data.c_str());
 
 	// 步骤10: 官方成功日志形态(addr/new_link/key),key 只记掩码。
-	obs_log(LOG_INFO, "开播成功: addr=%s key=%s", rtmp_addr.c_str(),
-		rtmp_code.empty() ? "(空)" : "****");
+	obs_log(LOG_INFO, "开播成功: addr=%s key=%s", rtmp_addr.c_str(), rtmp_code.empty() ? "(空)" : "****");
 	return true;
 }
 
@@ -1024,9 +1041,10 @@ bool BiliApi::stopLive(const Config &config, std::string &message)
 	auto response = Http::HttpClient::post("https://api.live.bilibili.com/room/v1/Room/stopLive", data);
 	obs_log(LOG_INFO, "停止直播: %s", response.data.c_str());
 	if (response.status != 200) {
-		message = "停止直播失败，状态码: " + std::to_string(response.status);
+		message = Utils::Text("Api.FailStatus", Utils::Text("Ep.StopLive").c_str(),
+				      std::to_string(response.status).c_str());
 		if (!response.data.empty()) {
-			message += ", 数据: " + response.data;
+			message += Utils::Text("Api.DataSuffix", response.data.c_str());
 		}
 		return false;
 	}
@@ -1039,10 +1057,9 @@ bool BiliApi::stopLive(const Config &config, std::string &message)
 		// 60034(实网 2026-11-25/26):服务端按 App 版本参数指纹放行停播;
 		// access_key 为空同样可过(实网定案,E-20)。此处只如实上抛政策拦截。
 		if (json["code"].int_value() == 60034) {
-			message = "服务端策略:仅直播姬可关播(60034)。"
-				  "可在 OBS 停止推流,无推流数分钟后服务端自动结束本场次";
+			message = Utils::Text("Api.Stop60034");
 		} else
-			message = "停止直播失败: " + detail;
+			message = Utils::Text("Api.FailParse", Utils::Text("Ep.StopLive").c_str(), detail.c_str());
 		return false;
 	}
 
@@ -1053,7 +1070,7 @@ bool BiliApi::stopLive(const Config &config, std::string &message)
 bool BiliApi::updateRoomInfo(const Config &config, std::string &message, const std::string &title, int areaId)
 {
 	if (title.empty() && areaId < 0) {
-		message = "无可更新内容";
+		message = Utils::Text("Api.NothingToUpdate");
 		return false;
 	}
 

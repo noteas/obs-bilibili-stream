@@ -16,7 +16,6 @@ namespace Srt {
 namespace {
 
 constexpr const char *kProtocol = "bvc_srt";
-constexpr const char *kDefaultServerName = "B站 SRT 默认入口 | Default";
 constexpr const char *kDefaultServerUrl = "rtmpsrt://live-push.bilivideo.com/live-bvc/";
 constexpr int kFallbackFormatVersion = 5;
 // 早期版本写过的条目名。OBS 按 `name` 认条目，不清掉的话下拉里会叠出重复条目，
@@ -70,7 +69,7 @@ bool WriteFile(const std::string &path, const std::string &text)
 	return true;
 }
 
-json11::Json MakeServiceEntry(const std::vector<CatalogLine> &lines)
+json11::Json MakeServiceEntry(const std::vector<CatalogLine> &lines, const std::string &default_server_name)
 {
 	json11::Json::array servers;
 	std::set<std::string> seen;
@@ -84,7 +83,7 @@ json11::Json MakeServiceEntry(const std::vector<CatalogLine> &lines)
 	}
 	if (servers.empty()) {
 		json11::Json::object server;
-		server["name"] = kDefaultServerName;
+		server["name"] = default_server_name;
 		server["url"] = kDefaultServerUrl;
 		servers.emplace_back(std::move(server));
 	}
@@ -116,8 +115,8 @@ bool IsOurEntry(const json11::Json &item)
 
 } // namespace
 
-bool MergeServiceCatalogJson(const std::string &base, const std::vector<CatalogLine> &lines,
-			     std::string &out, std::string &error)
+bool MergeServiceCatalogJson(const std::string &base, const std::vector<CatalogLine> &lines, std::string &out,
+			     std::string &error, const std::string &default_server_name)
 {
 	std::string parse_error;
 	const json11::Json root = json11::Json::parse(base, parse_error);
@@ -131,18 +130,18 @@ bool MergeServiceCatalogJson(const std::string &base, const std::vector<CatalogL
 		if (!IsOurEntry(item))
 			services.push_back(item);
 	}
-	services.push_back(MakeServiceEntry(lines));
+	services.push_back(MakeServiceEntry(lines, default_server_name));
 
 	// 顶层键原样保留（`$schema`、将来 OBS 可能新增的字段……），只替换我们负责的两项。
 	json11::Json::object obj = root.object_items();
 	obj["format_version"] = root["format_version"].is_number() ? root["format_version"]
-								  : json11::Json(kFallbackFormatVersion);
+								   : json11::Json(kFallbackFormatVersion);
 	obj["services"] = json11::Json(std::move(services));
 	out = json11::Json(std::move(obj)).dump() + "\n";
 	return true;
 }
 
-void UpdateServiceCatalog(const std::vector<CatalogLine> &lines)
+void UpdateServiceCatalog(const std::vector<CatalogLine> &lines, const std::string &default_server_name)
 {
 	// 读-改-写整个文件必须串行。当前调用方全在 OBS UI 线程（开播成功回调、
 	// 打开控制台），加锁是为未来新增调用方兜底，也明确这个函数的线程契约。
@@ -178,9 +177,8 @@ void UpdateServiceCatalog(const std::vector<CatalogLine> &lines)
 
 	std::string merge_error;
 	std::string text;
-	if (!MergeServiceCatalogJson(base, lines, text, merge_error)) {
-		blog(LOG_WARNING, "[bvc-srt] services.json 解析失败，保持原文件不动: %s",
-		     merge_error.c_str());
+	if (!MergeServiceCatalogJson(base, lines, text, merge_error, default_server_name)) {
+		blog(LOG_WARNING, "[bvc-srt] services.json 解析失败，保持原文件不动: %s", merge_error.c_str());
 		return;
 	}
 	if (text == base) {
