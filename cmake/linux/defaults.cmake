@@ -43,6 +43,12 @@ set(CPACK_ARCHIVE_THREADS 0)
 
 include(CPack)
 
+# CI 专用:OBS 开发文件走 buildspec 钉死的源码版本(机制与注释见 cmake/linux/buildspec.cmake);
+# 本地开发保持系统 OBS libobs cmake 包路径不变。
+if(DEFINED ENV{CI})
+  include(buildspec)
+endif()
+
 find_package(libobs QUIET)
 
 if(NOT TARGET OBS::libobs)
