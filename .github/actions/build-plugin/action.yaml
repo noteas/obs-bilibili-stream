@@ -58,8 +58,8 @@ runs:
         brew install --quiet zsh
         # OBS 开发文件不再来自 apt(版本不可控,见 cmake/linux/buildspec.cmake):
         # CI 由 buildspec 钉死 32.2.0 源码构建 libobs ⇒ 这里装 OBS 源码 configure
-        # 的 REQUIRED 依赖(libobs: SIMDe/FFmpeg/ZLIB/Uthash/jansson)+ fork 的
-        # libsrt/mbedTLS。
+        # 的依赖:libobs(SIMDe/FFmpeg/ZLIB/Uthash/jansson)+ libobs-opengl 无条件
+        # 需要的 ECM/X11/XCB/Libdrm/OpenGL(glad)+ fork 的 libsrt/mbedTLS。
         sudo apt-get update
         sudo apt-get install -y \
           libcurl4-openssl-dev \
@@ -74,6 +74,13 @@ runs:
           libswresample-dev \
           libavcodec-dev \
           zlib1g-dev \
+          extra-cmake-modules \
+          libdrm-dev \
+          libx11-dev \
+          libxcb1-dev \
+          libx11-xcb-dev \
+          libgl-dev \
+          libglx-dev \
           cmake \
           build-essential \
           ccache

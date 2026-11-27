@@ -63,8 +63,11 @@ function(_setup_obs_studio)
   else()
     # Linux(本插件 CI 用):默认 Makefiles;-G 后必须跟真实参数,
     # 故第二项放一个无害的缓存变量而非空串(空串会被 cmake 当位置参数拒绝)。
+    # ENABLE_WAYLAND=OFF:插件只用 libobs 头与链接面,Wayland 的
+    # OpenGL-EGL/Wayland 依赖(且 glad 无条件要 OpenGL)不必拉全。
     set(_cmake_generator "Unix Makefiles")
     set(_cmake_arch "-DENABLE_UI:BOOL=OFF")
+    set(_cmake_extra "-DENABLE_WAYLAND:BOOL=OFF")
   endif()
 
   message(STATUS "Configure ${label} (${arch})")
@@ -153,7 +156,8 @@ function(_check_dependencies)
 
     if(EXISTS "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256")
       file(
-        READ "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256"
+        READ
+        "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256"
         OBS_DEPENDENCY_${dependency}_${arch}_HASH
       )
     endif()
