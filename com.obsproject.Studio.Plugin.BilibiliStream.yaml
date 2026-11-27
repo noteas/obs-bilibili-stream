@@ -67,6 +67,10 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_FRONTEND_API=ON
+      # 离线回归测试在 ubuntu/windows 原生 CI 跑;沙箱里测试可执行文件链接的是
+      # 运行时 /app/lib/libobs.so.30,其传递依赖(libavcodec→libvpx/libjxl/svt、
+      # libavutil→GLIBC_2.44 符号)在 SDK 链接器里无法满足,必挂(2026-11-27 CI)。
+      - -DBUILD_TESTS=OFF
     sources:
       - type: dir
         path: .
