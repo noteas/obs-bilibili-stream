@@ -58,4 +58,4 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 ## 安装，运行
 
-将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，OBS将自动加载。
+将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，并将 `data/locale/` 放在 `~/.config/obs-studio/plugins/bilibili-stream-for-obs/data/locale/`（界面文案 i18n 必需，缺了 obs_module_text 只回显键名），OBS将自动加载。
