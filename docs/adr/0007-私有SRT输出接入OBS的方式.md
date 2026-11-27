@@ -47,6 +47,11 @@ ADR-0006 决定实现 B站私有 RTMP-over-SRT 输出（形态 A：`obs_output` 
 - **rtmp-services 会联网更新并整表覆盖 services.json**（OBS 32.2 实测：启动时拉到 version 295
   后覆盖）。插件刻意**不在模块加载时写**（避免与更新线程互相覆盖），只在开播成功/打开控制台时
   合并；因此 OBS 刚启动、更新完成后，条目要等一次开播或打开控制台才出现。
+- **写入后无需重启 OBS**：`rtmp-services` 在每次构建 `rtmp_common` 的 properties 时重新读用户级
+  services.json（OBS 32.2 + libobs 实测：写入前服务列表 5 条、写入后重建 properties 变 6 条且含
+  「Bilibili Live - SRT」），所以**关掉再打开「设置→直播」窗口**即可看到条目。
+- 覆盖只在**远端版本更新**时发生：`plugin_config/rtmp-services/package.json` 记录的版本与远端一致
+  时 rtmp-services 不再下载（实测：条目写入后连续启动 OBS 仍留存），所以条目通常是稳定的。
 - 若 `rtmp-services` 模块不存在或文件解析失败，插件只记日志、保持原文件不动（功能降级为
   控制台仍展示线路，OBS 侧无 SRT 服务条目）。
 - 若用户之后卸载插件：服务条目仍在，但协议 `bvc_srt` 没有 output 注册，OBS 会报“没有兼容的输出”；
