@@ -1,6 +1,7 @@
 #include "srt/srt_transport.hpp"
 
 #include <algorithm>
+#include <mutex>
 #include <cstring>
 
 #ifdef _WIN32
@@ -31,6 +32,12 @@ bool IsRecoverableTimeout(int code)
 }
 
 } // namespace
+
+void EnsureSrtStarted()
+{
+	static std::once_flag startup_once;
+	std::call_once(startup_once, [] { srt_startup(); });
+}
 
 SrtTransport::SrtTransport(const Target &target) : m_target(target) {}
 
@@ -97,8 +104,7 @@ bool SrtTransport::Connect(std::string &error)
 		return false;
 	}
 
-	// libsrt 的全局初始化是引用计数的；重复调用安全。
-	srt_startup();
+	EnsureSrtStarted();
 
 	m_sock = srt_create_socket();
 	if (m_sock == SRT_INVALID_SOCK) {

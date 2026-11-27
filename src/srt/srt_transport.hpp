@@ -13,6 +13,9 @@
 
 namespace Srt {
 
+// 全局只调用一次 srt_startup()；Unregister 里对应一次 srt_cleanup()。
+void EnsureSrtStarted();
+
 // B站私有 SRT 传输。参数固定按官方 bvc-srt-stream.dll 逆向结论（E-24）：
 //   TRANSTYPE=live, CONNTIMEO=10000ms, PAYLOADSIZE=1456, LATENCY=200ms,
 //   TSBPD=off, TLPKTDROP=off, MAXBW=2MiB/s(可覆盖), LINGER=1s。
