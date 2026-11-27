@@ -28,6 +28,9 @@ modules:
     builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      # 运行时同款 tag 是老项目(cmake_minimum_required < 3.5),SDK 25.08 的
+      # CMake 4.x 会直接拒绝 ⇒ 策略下限抬到 3.5(仅影响 policy,不动构建)。
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - -DCMAKE_POSITION_INDEPENDENT_CODE=ON
       - -DUSE_SHARED_MBEDTLS_LIBRARY=ON
       - -DUSE_STATIC_MBEDTLS_LIBRARY=OFF
@@ -42,6 +45,8 @@ modules:
   - name: srt
     buildsystem: cmake-ninja
     config-opts:
+      # 同 mbedtls:CMake 4.x 对老项目的 policy 下限抬升
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - -DENABLE_STATIC=OFF
       - -DENABLE_APPS=OFF
       - -DENABLE_LOGGING=OFF
