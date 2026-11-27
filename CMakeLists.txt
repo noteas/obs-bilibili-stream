@@ -43,8 +43,12 @@ if(ENABLE_SRT_OUTPUT)
       src/srt/amf.cpp
       src/srt/byte_io.hpp
       src/srt/byte_stream.hpp
+      src/srt/av1_parse.hpp
+      src/srt/av1_parse.cpp
       src/srt/flv_mux.hpp
       src/srt/flv_mux.cpp
+      src/srt/hevc_parse.hpp
+      src/srt/hevc_parse.cpp
       src/srt/rtmp_client.hpp
       src/srt/rtmp_client.cpp
       src/srt/srt_catalog.hpp

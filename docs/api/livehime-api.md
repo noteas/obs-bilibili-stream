@@ -701,9 +701,16 @@ RCVTIMEO=clamp(srt_recv_timeout_sec,3,60)*1000ms(key 缺省为 0/阻塞)
   `"Bilibili Live - SRT | 哔哩哔哩直播 - SRT"` 条目合并进 rtmp-services 的**用户级**
   `plugin_config/rtmp-services/services.json`(OBS 原生表 + 本条目)。用户在
   「设置→直播」选中它后,`GetStreamOutputType` 走第三方协议分支 → `bvc_srt_output`。
-- v1 只支持 H.264 + AAC(官方 track0 legacy tag 口径)。libsrt 1.5.x 适配:单次
+- H.264 + AAC 走官方 track0 legacy tag 口径(E-25)。libsrt 1.5.x 适配:单次
   `srt_send` ≤1316B、`srt_recv` 先收进 ≥1316B 缓冲再分发(LiveCC 限制)、
   `SRTO_LINGER` 用 `struct linger`。
+- **HEVC/AV1 是插件自有扩展,非官方直播姬行为(E-26 §3)**:官方 `bvc-srt-stream.dll`
+  只承载 H.264/AAC(视频支只写 legacy codecID 7,全二进制无 hvc1/av01 FourCC),官方
+  HEVC/AV1 走 BMT 引擎。插件按**上游 OBS 32.2 `flv_packet_ex` 族**的 Enhanced-RTMP
+  口径(用户实测 OBS 以此向 B站 RTMP 推 HEVC/AV1 服务端接受)做 best-effort 兼容:
+  FourCC `hvc1`/`av01`,SEQ_START 0x90 / FRAMES 0x91·0xA1 / FRAMESX 0x93·0xA3
+  (HEVC dts==pts 省 CT)/ SEQ_END 0xA2 / HDR colorInfo 0x84;AV1+HDR 拒开(上游同款)。
+  能否工作以真机实测判定;官方声明的 `encoded_video_codecs="h264;hevc;av1"` 与之一致。
 
 ### 证据
 

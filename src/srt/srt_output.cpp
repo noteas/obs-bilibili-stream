@@ -1,6 +1,7 @@
 #include "srt/srt_output.hpp"
 
 #include <obs-avc.h>
+#include <obs-hevc.h>
 #include <obs-module.h>
 
 #include <algorithm>
@@ -15,6 +16,8 @@
 #include <thread>
 
 #include "srt/flv_mux.hpp"
+#include "srt/av1_parse.hpp"
+#include "srt/hevc_parse.hpp"
 #include "srt/rtmp_client.hpp"
 #include "srt/srt_target.hpp"
 #include "srt/srt_transport.hpp"
@@ -25,8 +28,12 @@ namespace {
 
 constexpr size_t kMaxQueuedPackets = 1000;
 
+// track0 视频编码（obs_encoder_get_codec 口径），决定 legacy / Enhanced 封装路线。
+enum class VideoCodecKind { H264, Hevc, Av1 };
+
 struct SrtOutput {
 	obs_output_t *output = nullptr;
+	VideoCodecKind video_codec = VideoCodecKind::H264;
 
 	std::mutex mutex;
 	std::condition_variable cv;
@@ -76,6 +83,92 @@ void SetLastError(obs_output_t *output, const std::string &message)
 	blog(LOG_WARNING, "[bvc-srt] %s", message.c_str());
 }
 
+// 上游 send_video_metadata：仅 PQ/HLG（HDR）且非 H.264 时发 colorInfo metadata tag。
+// OBSCOL_* 取值 = libobs obs.h（ISO/IEC 23091-2 注册值；系统 30.x 头没有这些常量，自带）。
+constexpr int kColPriSmpte170M = 6;
+constexpr int kColPriBt709 = 1;
+constexpr int kColPriBt2020 = 9;
+constexpr int kColTrcIec61966_2_1 = 13;
+constexpr int kColTrcSmpte2084 = 16;
+constexpr int kColTrcAribStdB67 = 18;
+constexpr int kColSpcBt2020Ncl = 9;
+
+bool SendColorInfoIfHdr(SrtOutput *ctx, obs_encoder_t *venc, RtmpClient &client, std::string &error)
+{
+	if (ctx->video_codec == VideoCodecKind::H264)
+		return true;
+	const EnhancedVideoCodec ex =
+		ctx->video_codec == VideoCodecKind::Hevc ? EnhancedVideoCodec::Hevc : EnhancedVideoCodec::Av1;
+
+	video_t *video = obs_encoder_video(venc);
+	if (!video) {
+		error = "无法读取视频输出信息";
+		return false;
+	}
+	const struct video_output_info *info = video_output_get_info(video);
+	if (!info || !(info->colorspace == VIDEO_CS_2100_PQ || info->colorspace == VIDEO_CS_2100_HLG))
+		return true;
+
+	int bits_per_raw_sample;
+	switch (info->format) {
+	case VIDEO_FORMAT_I010:
+	case VIDEO_FORMAT_P010:
+	case VIDEO_FORMAT_I210:
+		bits_per_raw_sample = 10;
+		break;
+	case VIDEO_FORMAT_I412:
+	case VIDEO_FORMAT_YA2L:
+		bits_per_raw_sample = 12;
+		break;
+	default:
+		bits_per_raw_sample = 8;
+		break;
+	}
+
+	int pri = 0, trc = 0, spc = 0;
+	switch (info->colorspace) {
+	case VIDEO_CS_601:
+		pri = kColPriSmpte170M;
+		trc = kColPriSmpte170M;
+		spc = kColPriSmpte170M;
+		break;
+	case VIDEO_CS_DEFAULT:
+	case VIDEO_CS_709:
+		pri = kColPriBt709;
+		trc = kColPriBt709;
+		spc = kColPriBt709;
+		break;
+	case VIDEO_CS_SRGB:
+		pri = kColPriBt709;
+		trc = kColTrcIec61966_2_1;
+		spc = kColPriBt709;
+		break;
+	case VIDEO_CS_2100_PQ:
+		pri = kColPriBt2020;
+		trc = kColTrcSmpte2084;
+		spc = kColSpcBt2020Ncl;
+		break;
+	case VIDEO_CS_2100_HLG:
+		pri = kColPriBt2020;
+		trc = kColTrcAribStdB67;
+		spc = kColSpcBt2020Ncl;
+		break;
+	}
+
+	int max_luminance = 0;
+	if (trc == kColTrcAribStdB67)
+		max_luminance = 1000;
+	else if (trc == kColTrcSmpte2084)
+		max_luminance = (int)obs_get_video_hdr_nominal_peak_level();
+
+	FlvTag tag;
+	if (!MakeColorInfoTag(ex, bits_per_raw_sample, pri, trc, spc, 0, max_luminance, tag)) {
+		error = "构造 colorInfo metadata tag 失败";
+		return false;
+	}
+	return client.SendTag(tag, error);
+}
+
 bool SendHeaders(SrtOutput *ctx, RtmpClient &client, std::string &error)
 {
 	obs_encoder_t *aenc = obs_output_get_audio_encoder(ctx->output, 0);
@@ -95,25 +188,58 @@ bool SendHeaders(SrtOutput *ctx, RtmpClient &client, std::string &error)
 		return false;
 	}
 
+	// 上游 send_headers 顺序：先 colorInfo（仅 HDR），后序列头。
+	if (!SendColorInfoIfHdr(ctx, venc, client, error))
+		return false;
+
 	uint8_t *extra = nullptr;
 	size_t size = 0;
 	if (!obs_encoder_get_extra_data(venc, &extra, &size) || !extra || size == 0) {
-		error = "视频编码器没有 SPS/PPS（extra data）";
+		error = "视频编码器没有参数集（extra data）";
 		return false;
 	}
 
-	uint8_t *avcc = nullptr;
-	const size_t avcc_size = obs_parse_avc_header(&avcc, extra, size);
-	if (avcc_size == 0 || !avcc) {
-		error = "构造 AVCDecoderConfigurationRecord 失败";
+	switch (ctx->video_codec) {
+	case VideoCodecKind::H264: {
+		uint8_t *avcc = nullptr;
+		const size_t avcc_size = obs_parse_avc_header(&avcc, extra, size);
+		if (avcc_size == 0 || !avcc) {
+			error = "构造 AVCDecoderConfigurationRecord 失败";
+			bfree(avcc);
+			return false;
+		}
+		FlvTag video_header;
+		const bool ok = MakeVideoHeaderTag(avcc, avcc_size, video_header) && client.SendTag(video_header, error);
 		bfree(avcc);
-		return false;
+		if (!ok)
+			return false;
+		break;
 	}
-	FlvTag video_header;
-	const bool ok = MakeVideoHeaderTag(avcc, avcc_size, video_header) && client.SendTag(video_header, error);
-	bfree(avcc);
-	if (!ok)
-		return false;
+	case VideoCodecKind::Hevc: {
+		std::vector<uint8_t> hvcc;
+		if (!BuildHevcHvcC(extra, size, hvcc)) {
+			error = "构造 HEVCDecoderConfigurationRecord(hvcC) 失败";
+			return false;
+		}
+		FlvTag video_header;
+		if (!MakeVideoHeaderTagEx(hvcc.data(), hvcc.size(), EnhancedVideoCodec::Hevc, video_header) ||
+		    !client.SendTag(video_header, error))
+			return false;
+		break;
+	}
+	case VideoCodecKind::Av1: {
+		std::vector<uint8_t> av1c;
+		if (!BuildAv1CodecConfRecord(extra, size, av1c)) {
+			error = "构造 AV1CodecConfigurationRecord(av1C) 失败";
+			return false;
+		}
+		FlvTag video_header;
+		if (!MakeVideoHeaderTagEx(av1c.data(), av1c.size(), EnhancedVideoCodec::Av1, video_header) ||
+		    !client.SendTag(video_header, error))
+			return false;
+		break;
+	}
+	}
 
 	// 不发 onMetaData：官方只在 HDR 分支发 metadata，普通 H.264/AAC 只有序列头 + 媒体 tag（E-25 §6）。
 	return true;
@@ -131,12 +257,34 @@ bool SendQueuedPacket(SrtOutput *ctx, RtmpClient &client, encoder_packet *packet
 
 	FlvTag tag;
 	if (packet->type == OBS_ENCODER_VIDEO) {
-		encoder_packet parsed = {};
-		obs_parse_avc_packet(&parsed, packet);
 		const int32_t ct_ms = static_cast<int32_t>((PacketPtsUs(packet) - dts_us) / 1000);
 		if (ms <= ctx->last_video_ms)
 			ms = ctx->last_video_ms + 1;
 		ctx->last_video_ms = ms;
+
+		if (ctx->video_codec == VideoCodecKind::Hevc) {
+			encoder_packet parsed = {};
+			obs_parse_hevc_packet(&parsed, packet);
+			const bool ok = MakeVideoFrameTagEx(parsed.data, parsed.size, parsed.keyframe, ms, ct_ms,
+							    packet->dts == packet->pts, EnhancedVideoCodec::Hevc,
+							    tag) &&
+					client.SendTag(tag, error);
+			obs_encoder_packet_release(&parsed);
+			return ok;
+		}
+		if (ctx->video_codec == VideoCodecKind::Av1) {
+			// 上游 obs_parse_av1_packet：剔除 TD/冗余帧头 OBU 并按帧头重算 keyframe/priority。
+			std::vector<uint8_t> payload;
+			bool keyframe = packet->keyframe;
+			int priority = packet->priority;
+			ConvertAv1TemporalUnit(packet->data, packet->size, &keyframe, &priority, payload);
+			const bool ok = MakeVideoFrameTagEx(payload.data(), payload.size(), keyframe, ms, ct_ms, false,
+							    EnhancedVideoCodec::Av1, tag) &&
+					client.SendTag(tag, error);
+			return ok;
+		}
+		encoder_packet parsed = {};
+		obs_parse_avc_packet(&parsed, packet);
 		const bool ok = MakeVideoFrameTag(parsed.data, parsed.size, parsed.keyframe, ms, ct_ms, tag) &&
 				client.SendTag(tag, error);
 		obs_encoder_packet_release(&parsed);
@@ -286,6 +434,17 @@ void WorkerMain(SrtOutput *ctx)
 	ctx->cv.notify_all();
 	if (reader.joinable())
 		reader.join();
+	// 上游 send_footers：停播时 track0 非 H.264 要补发 SEQ_END；断线（failed）时 socket 已废，跳过。
+	if (ctx->capture_started && !ctx->failed && ctx->video_codec != VideoCodecKind::H264) {
+		const EnhancedVideoCodec ex = ctx->video_codec == VideoCodecKind::Hevc ? EnhancedVideoCodec::Hevc
+											: EnhancedVideoCodec::Av1;
+		FlvTag footer;
+		std::string ignored;
+		// 上游 footer 包 dts=0 → ts = 0 - start_dts_offset（int32 环绕由 builder 处理）。
+		if (MakeVideoSeqEndTag(ctx->have_dts_offset ? -(ctx->dts_offset_us / 1000) : 0, ex, footer))
+			client.SendTag(footer, ignored);
+	}
+
 	// librtmp 的顺序：RTMP_Close() 里先 FCUnpublish/deleteStream，再关 socket（E-25 §5）。
 	client.SendTeardown();
 	transport.Close();
@@ -368,16 +527,33 @@ bool output_start(void *data)
 		return false;
 	}
 	const char *vcodec = obs_encoder_get_codec(venc);
-	if (!vcodec || strcmp(vcodec, "h264") != 0) {
-		SetLastError(ctx->output, "私有 SRT 输出 v1 仅支持 H.264 视频编码器");
+	if (!vcodec || strcmp(vcodec, "h264") == 0)
+		ctx->video_codec = VideoCodecKind::H264;
+	else if (strcmp(vcodec, "hevc") == 0)
+		ctx->video_codec = VideoCodecKind::Hevc;
+	else if (strcmp(vcodec, "av1") == 0)
+		ctx->video_codec = VideoCodecKind::Av1;
+	else {
+		SetLastError(ctx->output, std::string("不支持的视频编码器「") + (vcodec ? vcodec : "?") +
+						   "」，可选 H.264 / HEVC / AV1");
 		return false;
+	}
+
+	if (ctx->video_codec == VideoCodecKind::Av1) {
+		// 上游 rtmp-stream：AV1 + PQ/HLG 直接 OBS_OUTPUT_HDR_DISABLED 停播。
+		video_t *video = obs_encoder_video(venc);
+		const struct video_output_info *info = video ? video_output_get_info(video) : nullptr;
+		if (info && (info->colorspace == VIDEO_CS_2100_PQ || info->colorspace == VIDEO_CS_2100_HLG)) {
+			SetLastError(ctx->output, "AV1 不支持 HDR 推流（上游 OBS 同款限制），请改用 HEVC/H.264");
+			return false;
+		}
 	}
 
 	obs_encoder_t *aenc = obs_output_get_audio_encoder(ctx->output, 0);
 	if (aenc) {
 		const char *acodec = obs_encoder_get_codec(aenc);
 		if (!acodec || strcmp(acodec, "aac") != 0) {
-			SetLastError(ctx->output, "私有 SRT 输出 v1 仅支持 AAC 音频编码器");
+			SetLastError(ctx->output, "私有 SRT 输出仅支持 AAC 音频编码器（上游 track0 恒 legacy AAC）");
 			return false;
 		}
 	}
@@ -534,7 +710,7 @@ void InitOutputInfo()
 	g_output_info.get_total_bytes = output_total_bytes;
 	g_output_info.get_dropped_frames = output_dropped_frames;
 	g_output_info.get_connect_time_ms = output_connect_time;
-	g_output_info.encoded_video_codecs = "h264";
+	g_output_info.encoded_video_codecs = "h264;hevc;av1";
 	g_output_info.encoded_audio_codecs = "aac";
 	g_output_info.protocols = "bvc_srt";
 }

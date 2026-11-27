@@ -951,6 +951,8 @@ obs_properties_t *console_properties(void *data)
 			has_srt ? std::string("已把本次 rtmpsrt:// 线路写入 OBS 服务列表：设置→直播→服务选「") +
 					  Srt::kServiceEntryName +
 				  "」，服务器选本次线路，推流码从上面复制后手动填写；开始直播仍由你在 OBS 点。"
+				  "视频支持 H.264/HEVC/AV1(+AAC)：HEVC/AV1 是插件自有扩展，按上游 OBS 的 "
+				  "Enhanced-RTMP 口径封装（官方直播姬此链路只发 H.264/AAC），能否生效以服务端为准。"
 				  "设置窗口若已开着，关掉再打开即可看到新条目。"
 				: "本次响应没有 rtmpsrt:// 线路（恢复场次也只给 rtmp），OBS 服务列表未改动。";
 		obs_properties_add_text(props, "st_srt_hint", hint.c_str(), OBS_TEXT_INFO);
