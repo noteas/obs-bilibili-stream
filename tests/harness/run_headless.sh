@@ -53,7 +53,8 @@ SCENARIOS=("$@")
 if [ ${#SCENARIOS[@]} -eq 0 ]; then
   SCENARIOS=(startup_logged_out login_get_key_close close_cancel streaming_guard network_error_keeps_login
              recover stop_rejected exit_then_unload first_run_shows_dock backup_fallback
-             partition_fail_no_loop stale_lines_cleared unload_while_login_polling)
+             partition_fail_no_loop stale_lines_cleared empty_title_keeps_local
+             unload_while_login_polling)
 fi
 failed=0
 for sc in "${SCENARIOS[@]}"; do

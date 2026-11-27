@@ -49,7 +49,11 @@ xvfb-run -a tests/harness/run_headless.sh build_x86_64_debug/tests/bili_harness 
 | `first_run_shows_dock` | 首次加载 `FINISHED_LOADING`:dock 自动显示并停靠 |
 | `backup_fallback` | 有备流资格(=5):先发备流参数,70003 后回退普通开播 |
 | `partition_fail_no_loop` | 分区接口 500:只请求一次,属性表不重建循环 |
+| `empty_title_keeps_local` | 服务端 `data.title` 为空:面板保留本地标题(上游 ae01b1b 的守卫) |
 | `unload_while_login_polling` | 登录轮询进行中直接卸载:秒级返回,不崩 |
+
+`stale_lines_cleared` 在一次 ASan 轮次里还抓到过一个真 bug:磁盘恢复的临时房间态(`live_status` 未知)
+曾被显示成「未开播」——现在侧栏与控制台都把未知显示为「未知」,该场景以「未开播」出现为对账完成的标志。
 
 ### ASan/UBSan
 

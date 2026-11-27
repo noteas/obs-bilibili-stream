@@ -586,6 +586,13 @@ static void scenario_stop_rejected()
 
 // OBS 重启后本地还留着上一场的线路,而服务端早已结束场次:启动对账发现未开播 ⇒ 清掉
 // 失效线路(密钥每场新生成),「获取推流码」重新可用。
+// 服务端 data.title 为空(上游 ae01b1b 的守卫):面板保留本地标题,不被刷成空白。
+static void scenario_empty_title_keeps_local()
+{
+	check(wait_until([]() { return label_has(kOffline); }, 10000), "title: first refresh completed");
+	check(label_has(kTitle), "title: local title kept when the server returns an empty title");
+}
+
 static void scenario_stale_lines_cleared()
 {
 	check(wait_until([]() { return button(kBtnStart) && button(kBtnStart)->isEnabled(); }),
@@ -700,6 +707,8 @@ int main(int argc, char *argv[])
 		 R"({"reset": true, "partition_fail": true})", true, false, true},
 		{"stale_lines_cleared", scenario_stale_lines_cleared, R"({"reset": true, "room_live": 0})", true, true,
 		 true},
+		{"empty_title_keeps_local", scenario_empty_title_keeps_local,
+		 R"({"reset": true, "room_live": 0, "title_empty": true})", true, false, true},
 	};
 	const Scenario *scenario = nullptr;
 	for (const Scenario &sc : scenarios)

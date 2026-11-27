@@ -185,7 +185,8 @@ class Handler(BaseHTTPRequestHandler):
                 return R({"code": -500, "message": "server busy"}, 500)
             live = STATE["live"] if s["room_live"] == "auto" else bool(s["room_live"])
             return R({"code": 0, "message": "0", "data": {
-                "room_id": 21452505, "live_status": 1 if live else 0, "title": "测试直播间<b>&amp;",
+                "room_id": 21452505, "live_status": 1 if live else 0,
+                "title": "" if s.get("title_empty") else "测试直播间<b>&amp;",
                 "lock_status": 0, "lock_time": 0, "parent_id": 2, "area_v2_id": 86, "area_v2_name": "电竞"}})
         if path == "/room/v1/Area/getList":
             if s["partition_fail"]:
