@@ -354,6 +354,9 @@ QWidget *build_room_box(QWidget *parent)
 	add_row(grid, row++, "Dock.Area", make_value(s.area_display()));
 
 	{
+		// live_status < 0 = 未知(启动时从磁盘恢复的临时房间态、或本次刷新没取到):
+		// 不能显示成「未开播」,否则服务端其实还在直播时,面板会在第一次对账前
+		// 误导用户(harness 的 ASan 轮次靠时序放大抓到过这个窗口)。
 		std::string state = Utils::Text("Common.Unknown");
 		const char *cls = "text-muted";
 		if (room.known) {
@@ -365,8 +368,10 @@ QWidget *build_room_box(QWidget *parent)
 			case 2:
 				state = Utils::Text("Live.Rebroadcast");
 				break;
-			default:
+			case 0:
 				state = Utils::Text("Live.Offline");
+				break;
+			default:
 				break;
 			}
 			if (room.info.locked)
