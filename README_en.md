@@ -122,7 +122,8 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 - OBS Studio 30.0 or higher
 - Windows / Ubuntu 24.04 or higher
 - Building the private SRT output requires libsrt headers (`libsrt-gnutls-dev` or
-  `libsrt-openssl-dev`); without them CMake disables that feature and the rest still builds.
+  `libsrt-openssl-dev`); running it needs the matching `libsrt1.5-gnutls` runtime.
+  Without the headers CMake disables that feature and the rest still builds.
 
 ## Contributing
 

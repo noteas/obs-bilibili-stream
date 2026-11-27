@@ -60,6 +60,7 @@ runs:
         sudo apt-get install -y \
           libcurl4-openssl-dev \
           libobs-dev \
+          libsrt-gnutls-dev \
           cmake \
           build-essential \
           ccache

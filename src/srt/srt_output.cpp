@@ -284,6 +284,16 @@ void WorkerMain(SrtOutput *ctx)
 	}
 }
 
+void DrainQueue(SrtOutput *ctx)
+{
+	std::lock_guard<std::mutex> lock(ctx->mutex);
+	for (encoder_packet *packet : ctx->queue) {
+		obs_encoder_packet_release(packet);
+		delete packet;
+	}
+	ctx->queue.clear();
+}
+
 void *output_create(obs_data_t *settings, obs_output_t *output)
 {
 	auto *ctx = new SrtOutput();
@@ -310,12 +320,7 @@ void output_destroy(void *data)
 	if (ctx->reader.joinable())
 		ctx->reader.join();
 
-	std::lock_guard<std::mutex> lock(ctx->mutex);
-	for (encoder_packet *packet : ctx->queue) {
-		obs_encoder_packet_release(packet);
-		delete packet;
-	}
-	ctx->queue.clear();
+	DrainQueue(ctx);
 	delete ctx;
 }
 
@@ -371,6 +376,7 @@ bool output_start(void *data)
 	if (!obs_output_initialize_encoders(ctx->output, 0))
 		return false;
 
+	DrainQueue(ctx);
 	ctx->stopping = false;
 	ctx->failed = false;
 	ctx->capture_started = false;
@@ -408,6 +414,7 @@ void output_stop(void *data, uint64_t /*ts*/)
 		obs_output_end_data_capture(ctx->output);
 		ctx->capture_started = false;
 	}
+	DrainQueue(ctx);
 }
 
 void output_encoded_packet(void *data, struct encoder_packet *packet)

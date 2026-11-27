@@ -133,7 +133,8 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 - OBS Studio 30.0 或更高版本
 - Windows / Ubuntu 24.04 或更高版本
 - 构建私有 SRT 输出需要 libsrt 开发包：Debian/Ubuntu `libsrt-gnutls-dev`
-  （或 `libsrt-openssl-dev`）。未找到时 CMake 会关闭该功能，插件其余部分仍可正常构建/使用。
+  （或 `libsrt-openssl-dev`）；运行需要对应的 `libsrt1.5-gnutls`（或 openssl 变体）。
+  未找到开发包时 CMake 会关闭该功能，插件其余部分仍可正常构建/使用。
 
 ## 贡献
 
