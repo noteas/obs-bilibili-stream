@@ -40,5 +40,6 @@ void obs_module_unload(void)
 	UI::ConsoleDestroy();
 	Bili::BiliApi::cleanup();
 	Http::HttpClient::cleanup();
+	Srt::Cleanup();
 	obs_log(LOG_INFO, "插件已卸载");
 }

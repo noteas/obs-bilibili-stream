@@ -7,5 +7,7 @@
 namespace Srt {
 
 void Register();
+// 插件卸载时配平 libsrt 的 startup 引用（未连接过则不动作）。
+void Cleanup();
 
 } // namespace Srt

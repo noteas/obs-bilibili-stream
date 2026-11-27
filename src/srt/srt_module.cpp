@@ -8,11 +8,19 @@
 // protocols "bvc_srt"（ADR-0007：控制台服务目录按此协议串让 OBS 自动实例化本输出）。
 extern "C" struct obs_output_info rtmp_output_info;
 
+// fork librtmp/srt_sock.c：与首次 srt_startup 配平（幂等，未连接过则不动作）。
+extern "C" void RTMP_SRT_Cleanup(void);
+
 namespace Srt {
 
 void Register()
 {
 	obs_register_output(&rtmp_output_info);
+}
+
+void Cleanup()
+{
+	RTMP_SRT_Cleanup();
 }
 
 } // namespace Srt
@@ -22,6 +30,7 @@ void Register()
 namespace Srt {
 
 void Register() {}
+void Cleanup() {}
 
 } // namespace Srt
 
