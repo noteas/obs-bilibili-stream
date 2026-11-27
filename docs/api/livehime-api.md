@@ -320,7 +320,7 @@ multi_user_conn.entrances, collaboration_live_display_info
 `lock_reason` 未下发)。登录链房间态(场次/锁定/进行中场次判据)以本端点为准。
 
 ### 证据: builder F-1802b1e60(字面量 `uId`+sign;派发回调=F-1802b3690)。
-仓库: `getRoomInfoByUid()`;登录链默认先走本端点,失败 WARNING 后回退老端点。
+仓库: `getRoomInfoByUid()`;登录链房间态唯一端点(3.0.2 起无旧端点回退);面板房间行的房间名按本端点 `data.title` 服务端回写(换号/网页改名后刷新即更新,本地标题仅编辑草稿)。
 
 ## 3.4 getHomePageLiveVersion
 

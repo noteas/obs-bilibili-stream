@@ -218,6 +218,7 @@ void refresh_login_chain()
 		std::string roomId;
 		std::string csrf;
 		std::string roomState; // §3.1: 场次/封禁一句话(空=不可用)
+		std::string title;     // §3.3 data.title: 服务端房间名(面板房间行唯一权威来源)
 		int liveStatus = -1;   // §3.1 live_status 原值(M1b 断流找回判据)
 	};
 	Http::HttpClient::runAsync(
@@ -240,6 +241,7 @@ void refresh_login_chain()
 				std::string stateMessage;
 				json11::Json data = Bili::BiliApi::getRoomInfoByUid(result->mid, stateMessage);
 				if (data.is_object()) {
+					result->title = data["title"].string_value();
 					const int live_status = data["live_status"].int_value();
 					result->liveStatus = live_status;
 					const std::string state = live_status == 1   ? Utils::Text("Live.IsLive")
@@ -263,6 +265,10 @@ void refresh_login_chain()
 			if (result->roomOk) {
 				cfg.room_id = result->roomId;
 				cfg.csrf_token = result->csrf;
+				// 房间名以服务端为准(§3.3 data.title):换号/网页改名后
+				// 刷新即回写,面板房间行不再滞留旧账号/旧标题。
+				if (!result->title.empty() && cfg.title != result->title)
+					cfg.title = result->title;
 			}
 			g_config.save();
 			// 服务端场次是唯一权威(GLOSSARY 开播/停播=服务端信令):
