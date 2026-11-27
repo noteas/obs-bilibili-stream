@@ -64,9 +64,9 @@ cmake --build build_asan -j8 && tests/harness/run_headless.sh build_asan/tests/b
 `run_headless.sh` 检测到 ASan 插桩的 harness 会把 `libasan.so` 排在 `LD_PRELOAD` 最前,并把任何
 Sanitizer 报告计为失败(默认 `detect_leaks=1`;插件故意泄漏的两个堆块被全局引用持有,不算泄漏)。
 
-## 没有系统 OBS 的机器怎么准备环境(2026-11-27 在 modenicheng 服务器上的做法)
+## 没有系统 OBS 的机器怎么准备环境(2026-11-27 在一台无桌面的构建机上验证过)
 
-不装任何系统包,全部解包到仓库里被 `.gitignore` 忽略的 `.deps/`:
+不装任何系统包,全部解包到仓库里被 `.gitignore` 忽略的 `.deps/`(以 Ubuntu 24.04 为例):
 
 ```bash
 # 1) 头面:buildspec 钉死的 OBS 32.2.0 源码包(同 CI,cmake/linux/buildspec.cmake 的解包目标)
