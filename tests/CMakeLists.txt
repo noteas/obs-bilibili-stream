@@ -4,11 +4,7 @@ find_package(libobs REQUIRED)
 find_package(Threads REQUIRED)
 
 # 1) rtmpsrt:// 目标解析（srt_target.cpp，纯函数）。
-add_executable(
-  srt_target_test
-  srt_target_test.cpp
-  ${CMAKE_SOURCE_DIR}/src/srt/srt_target.cpp
-)
+add_executable(srt_target_test srt_target_test.cpp ${CMAKE_SOURCE_DIR}/src/srt/srt_target.cpp)
 target_include_directories(srt_target_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME srt_target_test COMMAND srt_target_test)
 
