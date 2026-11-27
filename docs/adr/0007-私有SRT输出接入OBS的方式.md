@@ -60,5 +60,5 @@ ADR-0006 决定实现 B站私有 RTMP-over-SRT 输出（形态 A：`obs_output` 
   控制台仍展示线路，OBS 侧无 SRT 服务条目）。
 - 若用户之后卸载插件：服务条目仍在，但协议 `bvc_srt` 没有 output 注册，OBS 会报“没有兼容的输出”；
   用户改回其他服务即可（或删除该条目）。
-- v1 只支持 H.264 + AAC（与官方 track0「old style for compatibility」一致）；HEVC/AV1 后续扩展，
-  接入方式不变。
+- 编解码口径随 fork 的上游 flv-mux：H.264/AAC 为 legacy 口径（与官方 track0「old style for
+  compatibility」一致），HEVC/AV1 走 Enhanced-RTMP（E-26 §3）；接入方式不变。
