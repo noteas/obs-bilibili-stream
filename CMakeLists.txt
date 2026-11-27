@@ -41,6 +41,7 @@ if(ENABLE_SRT_OUTPUT)
     set(SRT_SOURCES
       src/srt/amf.hpp
       src/srt/amf.cpp
+      src/srt/byte_io.hpp
       src/srt/byte_stream.hpp
       src/srt/flv_mux.hpp
       src/srt/flv_mux.cpp
@@ -58,8 +59,19 @@ if(ENABLE_SRT_OUTPUT)
       src/srt/srt_transport.cpp
     )
   else()
-    message(WARNING "libsrt not found: private SRT output disabled (install libsrt-gnutls-dev)")
-    set(ENABLE_SRT_OUTPUT OFF)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      # Linux 是本插件的主平台：SRT 输出静默缺失会让人以为功能已生效（服务下拉里有
+      # 条目但推流会报「未注册协议」），所以这里直接失败，除非显式 -DENABLE_SRT_OUTPUT=OFF。
+      message(
+        FATAL_ERROR
+          "libsrt not found: 私有 SRT 输出是主功能，不默认降级。安装 libsrt-gnutls-dev（或 apt install libsrt-dev），"
+          "或显式关闭：-DENABLE_SRT_OUTPUT=OFF")
+    else()
+      # 其他平台尚未验证 SRT 路径（CI 上也没装 libsrt），保持降级但把它说清楚。
+      message(
+        WARNING "libsrt not found on ${CMAKE_SYSTEM_NAME}: 私有 SRT 输出已禁用（本平台未验证，构建其余部分照常）")
+      set(ENABLE_SRT_OUTPUT OFF)
+    endif()
   endif()
 endif()
 
@@ -102,6 +114,13 @@ if(ENABLE_SRT_OUTPUT)
     target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${SRT_LIBRARY})
   endif()
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE BILI_ENABLE_SRT=1)
+endif()
+
+# 离线回归测试（tests/，CTest）：跟随 SRT 输出开关；-DBUILD_TESTS=OFF 可关。
+option(BUILD_TESTS "Build offline SRT regression tests (ctest)" ON)
+if(ENABLE_SRT_OUTPUT AND BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
 endif()
 
 if(ENABLE_FRONTEND_API)
