@@ -1,6 +1,7 @@
 #include "http_client.hpp"
 #include <curl/curl.h>
 #include <obs.h>
+#include <chrono>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -102,9 +103,17 @@ bool merge_pairs_locked(const std::string &pairs)
 			continue;
 		const std::string key = pair.substr(0, eq);
 		const std::string value = pair.substr(eq + 1);
-		if (value.empty())
-			continue; // deletion-style Set-Cookie: keep what we have
 		auto it = cookie_jar.find(key);
+		if (value.empty()) {
+			// 删除型 Set-Cookie(name=; Expires=过去):服务端注销会话,本地必须跟着清掉。
+			// 旧版把它当「保持原值」 ⇒ 退出登录后仍带着失效的 SESSDATA。
+			if (it == cookie_jar.end())
+				continue;
+			cookie_jar.erase(it);
+			if (is_persistent_key(key))
+				persistent_changed = true;
+			continue;
+		}
 		if (it != cookie_jar.end() && it->second == value)
 			continue;
 		cookie_jar[key] = value;
@@ -219,6 +228,7 @@ static size_t headerCallback(char *buffer, size_t size, size_t nitems, void *use
 		size_t end = cookie.find(';');
 		if (end != std::string::npos)
 			cookie = cookie.substr(0, end);
+		// 「name=」(空值)要保留:它是服务端的删除指令,由 jar 侧解释。
 		if (cookie.empty() || cookie.find('=') == std::string::npos) {
 			return realsize;
 		}
@@ -229,11 +239,57 @@ static size_t headerCallback(char *buffer, size_t size, size_t nitems, void *use
 	return realsize;
 }
 
+// Cookie 只发给 B站自有域名。jar 是域无关的(单会话、全键一副),而插件会跟随
+// 服务端下发的任意跳转(login ticket、sso[] 列表、get_following 的每一跳);不设防时
+// SESSDATA/bili_jct 会被原样带到任何目标主机。名单按「主机名后缀」匹配。
+static const char *const kCookieHostSuffixes[] = {".bilibili.com",   ".biligame.com", ".bilibili.tv",
+						  ".biliapi.net",    ".biliapi.com",  ".bilivideo.com",
+						  ".acgvideo.com",   ".b23.tv",       ".bilicdn1.com",
+						  ".hdslb.com"};
+
+static std::string lower_ascii(std::string s)
+{
+	for (char &c : s)
+		if (c >= 'A' && c <= 'Z')
+			c = static_cast<char>(c - 'A' + 'a');
+	return s;
+}
+
+// 从 URL 取主机名(小写);取不到返回空。
+static std::string url_host(const std::string &url)
+{
+	size_t scheme = url.find("://");
+	size_t begin = scheme == std::string::npos ? 0 : scheme + 3;
+	size_t end = url.find_first_of("/?#", begin);
+	std::string authority = url.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+	const size_t at = authority.rfind('@');
+	if (at != std::string::npos)
+		authority = authority.substr(at + 1);
+	if (!authority.empty() && authority.front() == '[') { // [IPv6]:port
+		const size_t close = authority.find(']');
+		return lower_ascii(authority.substr(1, close == std::string::npos ? std::string::npos : close - 1));
+	}
+	const size_t colon = authority.rfind(':');
+	return lower_ascii(colon == std::string::npos ? authority : authority.substr(0, colon));
+}
+
+static bool cookie_allowed_for_host(const std::string &host)
+{
+	if (host.empty())
+		return false;
+	for (const char *suffix : kCookieHostSuffixes) {
+		const std::string tail = suffix + 1; // 去掉前导点,同时覆盖裸域与子域
+		if (host == tail || (host.size() > tail.size() && host.compare(host.size() - tail.size(), tail.size(), tail) == 0))
+			return true;
+	}
+	return false;
+}
+
 // Official native header set (E-08 §1): UA / Cookie / client_traceid /
 // Content-Type / Accept-Language — no Accept, no Origin/Referer, no Sec-Ch-Ua
 // family, no charset on Content-Type. libcurl's automatic "Accept: */*" is
 // suppressed with the empty-value header trick.
-static struct curl_slist *build_fingerprint_headers(bool is_post)
+static struct curl_slist *build_fingerprint_headers(bool is_post, const std::string &url)
 {
 	struct curl_slist *list = nullptr;
 	list = curl_slist_append(list, (std::string("User-Agent: ") + LIVEHIME_UA).c_str());
@@ -243,9 +299,11 @@ static struct curl_slist *build_fingerprint_headers(bool is_post)
 		list = curl_slist_append(list, "Content-Type: application/x-www-form-urlencoded");
 	if (!HttpClient::traceid().empty())
 		list = curl_slist_append(list, ("client_traceid: " + HttpClient::traceid()).c_str());
-	const std::string cookies = HttpClient::cookie_header();
-	if (!cookies.empty())
-		list = curl_slist_append(list, ("Cookie: " + cookies).c_str());
+	if (cookie_allowed_for_host(url_host(url))) {
+		const std::string cookies = HttpClient::cookie_header();
+		if (!cookies.empty())
+			list = curl_slist_append(list, ("Cookie: " + cookies).c_str());
+	}
 	return list;
 }
 
@@ -276,6 +334,10 @@ struct WorkerState {
 	std::condition_variable cv;
 	bool stop = false;
 	std::thread thread;
+	// 退出信号：workerLoop 返回前置位并广播，cleanup() 据此在有限时间内 join。
+	std::mutex exit_mutex;
+	std::condition_variable exit_cv;
+	bool exited = false;
 };
 static WorkerState &g_worker = *new WorkerState;
 std::queue<AsyncJob> &async_queue = g_worker.queue;
@@ -283,6 +345,10 @@ std::mutex &queue_mutex = g_worker.mutex;
 std::condition_variable &queue_cv = g_worker.cv;
 bool &stop_worker = g_worker.stop;
 std::thread &worker_thread = g_worker.thread;
+
+// 卸载时等待 worker 退出的上限。正常路径（请求被中止、轮询被唤醒）在毫秒级返回；
+// 只有传输层卡死才会等满，此时宁可 detach 并记错误日志，也不无限期阻塞 OBS 退出。
+constexpr auto kUnloadJoinTimeout = std::chrono::seconds(5);
 } // namespace
 
 static bool workerStopping()
@@ -354,6 +420,12 @@ static void workerLoop()
 			obs_log(LOG_ERROR, "异步任务执行失败: 未知异常");
 		}
 	}
+
+	{
+		std::lock_guard<std::mutex> lock(g_worker.exit_mutex);
+		g_worker.exited = true;
+	}
+	g_worker.exit_cv.notify_all();
 }
 
 void HttpClient::init()
@@ -372,12 +444,27 @@ void HttpClient::cleanup()
 		std::lock_guard<std::mutex> lock(queue_mutex);
 		stop_worker = true;
 	}
-	queue_cv.notify_all();
-	// Never block OBS shutdown: the worker exits by itself once the request
-	// in flight (if any) returns. curl_global_cleanup() is skipped for the
-	// same reason; it is optional at process exit.
-	if (worker_thread.joinable())
-		worker_thread.detach();
+	queue_cv.notify_all(); // 唤醒 sleep_unless_stopping() 里的轮询循环
+	// **必须 join，不能 detach**：obs_free_modules() 卸载模块时会 dlclose 本 .so，
+	// 而 worker 线程的循环体、libcurl 回调、异常处理全是本模块的代码——线程还在跑
+	// 就 unmap 代码页 = 退出 OBS 时的崩溃/未定义行为。停止请求经三条路径即时生效：
+	// 队列里未开始的job被丢弃、curl 进度回调中止在途请求、轮询 sleep 被唤醒。
+	// 等待有上限：传输层卡死时（理论上只剩阻塞式 DNS）退化为 detach + 错误日志，
+	// 不无限期阻塞 OBS 退出。curl_global_cleanup() 同样跳过（进程退出时可选）。
+	if (worker_thread.joinable()) {
+		bool exited = false;
+		{
+			std::unique_lock<std::mutex> lock(g_worker.exit_mutex);
+			exited = g_worker.exit_cv.wait_for(lock, kUnloadJoinTimeout, [] { return g_worker.exited; });
+		}
+		if (exited) {
+			worker_thread.join();
+		} else {
+			worker_thread.detach();
+			obs_log(LOG_ERROR, "HTTP worker 未在 %lld 秒内退出，已 detach（模块卸载后可能仍有代码在运行）",
+				static_cast<long long>(kUnloadJoinTimeout.count()));
+		}
+	}
 	// Drop the persistence hook so a late worker-side merge cannot call into
 	// a destroyed console.
 	{
@@ -386,8 +473,14 @@ void HttpClient::cleanup()
 	}
 }
 
-// Shared transport for get()/post()/get_following().
-static HttpResponse perform(const std::string &url, const std::string *body, bool follow_redirects, long timeout_ms)
+// 进度回调只做一件事：模块开始卸载就中止传输。
+static int abortWhenStopping(void *, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
+{
+	return workerStopping() ? 1 : 0;
+}
+
+// Shared transport for get()/post()/get_following(). Never follows redirects.
+static HttpResponse perform(const std::string &url, const std::string *body, long timeout_ms)
 {
 	HttpResponse response;
 	response.status = 0;
@@ -404,23 +497,30 @@ static HttpResponse perform(const std::string &url, const std::string *body, boo
 		curl_easy_setopt(curl, CURLOPT_POST, 1L);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body->c_str());
 	}
-	if (follow_redirects) {
-		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-		curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
-	}
+	// 显式关闭:跳转由 get_following() 逐跳处理(见头文件注释)。
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_data);
 	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, headerCallback);
 	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response_cookies);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+	// 卸载时中止在途请求（返回非 0 ⇒ CURLE_ABORTED_BY_CALLBACK）：libcurl 约每秒
+	// 调一次进度回调，包含连接/解析阶段，cleanup() 因此能在秒级内 join worker。
+	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, abortWhenStopping);
+	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, nullptr);
 
-	struct curl_slist *header_list = build_fingerprint_headers(body != nullptr);
+	struct curl_slist *header_list = build_fingerprint_headers(body != nullptr, url);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
 
 	CURLcode res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
 		response.timeout = (res == CURLE_OPERATION_TIMEDOUT);
+		// 传输层失败必须进日志:调用方只会把「网络错误」四个字放进状态行,没有 curl 的
+		// 具体原因用户和开发者都无从排查。只记主机名与原因,不记 URL 查询串(含票据)。
+		obs_log(res == CURLE_ABORTED_BY_CALLBACK ? LOG_INFO : LOG_WARNING, "HTTP 传输失败(%s): %s",
+			url_host(url).c_str(), curl_easy_strerror(res));
 		response.data = Utils::Text("Http.NetworkError", curl_easy_strerror(res));
 		response.status = 0;
 		curl_slist_free_all(header_list);
@@ -429,6 +529,12 @@ static HttpResponse perform(const std::string &url, const std::string *body, boo
 	}
 
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+	// FOLLOWLOCATION 关闭时 libcurl 仍会给出「本该跳去哪」的绝对 URL。
+	if (response.status >= 300 && response.status < 400 && response.status != 304) {
+		char *redirect = nullptr;
+		if (curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &redirect) == CURLE_OK && redirect)
+			response.redirect_url = redirect;
+	}
 	response.data = std::move(response_data);
 	response.cookies = std::move(response_cookies);
 	curl_slist_free_all(header_list);
@@ -439,18 +545,20 @@ static HttpResponse perform(const std::string &url, const std::string *body, boo
 
 HttpResponse HttpClient::get(const std::string &url, long timeout_ms)
 {
-	return perform(url, nullptr, false, timeout_ms);
+	return perform(url, nullptr, timeout_ms);
 }
 
 HttpResponse HttpClient::get_following(const std::string &url, long max_hops, long timeout_ms)
 {
-	(void)max_hops; // capped by CURLOPT_MAXREDIRS in perform()
-	return perform(url, nullptr, true, timeout_ms);
+	HttpResponse response = perform(url, nullptr, timeout_ms);
+	for (long hops = 0; hops < max_hops && !response.redirect_url.empty(); ++hops)
+		response = perform(response.redirect_url, nullptr, timeout_ms);
+	return response;
 }
 
 HttpResponse HttpClient::post(const std::string &url, const std::string &data, long timeout_ms)
 {
-	return perform(url, &data, false, timeout_ms);
+	return perform(url, &data, timeout_ms);
 }
 
 void HttpClient::runAsync(std::function<void()> work, std::function<void()> done)
@@ -480,5 +588,12 @@ bool HttpClient::isStopping()
 void HttpClient::postToUi(std::function<void()> fn)
 {
 	deliverToUiThread(std::move(fn));
+}
+
+bool HttpClient::sleep_unless_stopping(long ms)
+{
+	std::unique_lock<std::mutex> lock(queue_mutex);
+	// enqueue() 的 notify_one 会把 wait_for 提前唤醒，谓词保证只对 stop_worker 提前返回。
+	return !queue_cv.wait_for(lock, std::chrono::milliseconds(ms), [] { return stop_worker; });
 }
 } // namespace Http
