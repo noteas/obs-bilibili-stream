@@ -3,6 +3,7 @@
 #include <obs-avc.h>
 #include <obs-module.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -430,10 +431,15 @@ void output_encoded_packet(void *data, struct encoder_packet *packet)
 		std::lock_guard<std::mutex> lock(ctx->mutex);
 		ctx->queue.push_back(copy);
 		while (ctx->queue.size() > kMaxQueuedPackets) {
-			encoder_packet *old = ctx->queue.front();
-			ctx->queue.pop_front();
-			obs_encoder_packet_release(old);
-			delete old;
+			// 拥塞时优先丢非关键帧视频，保住音频与关键帧（OBS 同款策略）。
+			auto victim = std::find_if(ctx->queue.begin(), ctx->queue.end(), [](const encoder_packet *p) {
+				return p->type == OBS_ENCODER_VIDEO && !p->keyframe;
+			});
+			if (victim == ctx->queue.end())
+				victim = ctx->queue.begin();
+			obs_encoder_packet_release(*victim);
+			delete *victim;
+			ctx->queue.erase(victim);
 			ctx->dropped_frames.fetch_add(1);
 		}
 	}

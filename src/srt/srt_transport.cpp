@@ -2,8 +2,14 @@
 
 #include <algorithm>
 #include <cstring>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netdb.h>
 #include <sys/socket.h>
+#endif
 
 namespace Srt {
 
