@@ -97,9 +97,11 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
     - Click **开播** (Go live) in the console; **all lines** (primary/backup, protocol/provider, address, stream key) appear in the console and can be copied.
     - In OBS, go to **Settings** → **Stream**, choose the service that matches the line, and paste:
         - RTMP line: Service **Custom**, Server = push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-        - SRT line (`rtmpsrt://`): after going live the plugin adds a **Bilibili Live - SRT** entry
-          (protocol `bvc_srt`) to OBS's rtmp-services catalog. Choose it as the Service, pick the
-          matching `rtmpsrt://` server, and paste the stream key from the console. OBS then uses this
+        - SRT line (`rtmpsrt://`): the plugin merges a **Bilibili Live - SRT | 哔哩哔哩直播 - SRT**
+          entry (protocol `bvc_srt`) into OBS's rtmp-services catalog whenever a stream starts or the
+          console opens — unconditionally, so even sessions without an `rtmpsrt://` line keep the
+          entry (with the default server). Choose it as the Service, pick this session's
+          `rtmpsrt://` server, and paste the stream key from the console. OBS then uses this
           plugin's private SRT output (RTMP over SRT, UDP 1935), not OBS's native MPEG-TS SRT.
           Close/reopen the Settings dialog to refresh the service list.
     - Click **Start Streaming** in OBS. The plugin only handles go-live signalling, line display and

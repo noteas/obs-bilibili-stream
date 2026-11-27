@@ -26,13 +26,17 @@ ADR-0006 决定实现 B站私有 RTMP-over-SRT 输出（形态 A：`obs_output` 
 2. 插件在**每次 startLive/恢复成功后**与**打开控制台时**，把一条
    `"Bilibili Live - SRT | 哔哩哔哩直播 - SRT"` 合并进
    `plugin_config/rtmp-services/services.json`：
+   - **无条件写**：条目是「本插件支持私有 SRT」的能力声明，即使本次响应没有
+     `rtmpsrt://` 线路（如恢复场次只给 rtmp）也要保证下拉里有这一条，
+     实际用不用、改成什么地址由用户决定；
    - 底表：用户已有该文件则在其上合并，否则以 OBS 自带 `services.json` 为底；
    - 只替换/追加本插件这一条（按固定 name/alt_names），其余条目原样保留；
    - `servers[]` 用当前场次的 `rtmpsrt://` 地址（地址去重；无线路时给默认入口
      `rtmpsrt://live-push.bilivideo.com/live-bvc/`）；
-   - 内容无变化不落盘；原子写（`.tmp` + rename）。
-3. **用户选择权不变**：用户在 OBS「设置 → 直播」自己选服务「B站私有 SRT」、自己选服务器、
-   自己粘贴控制台显示的推流码、自己点「开始直播」。插件**不调用**
+   - 内容无变化不落盘；原子写（`.tmp` + rename）；读-改-写全程持锁串行。
+3. **用户选择权不变**：用户在 OBS「设置 → 直播」自己选服务「Bilibili Live - SRT |
+   哔哩哔哩直播 - SRT」、自己在「服务器」下拉选线路、自己粘贴控制台显示的推流码、
+   自己点「开始直播」。插件**不调用**
    `obs_frontend_set_streaming_service` / `save_streaming_service`，不写 profile 的
    `service.json`，不碰编码器/输出/多路配置。
 4. 这是对 ADR-0005 的唯一扩展：允许写 **rtmp-services 的服务目录**（数据文件），

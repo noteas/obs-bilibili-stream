@@ -657,8 +657,9 @@ OBS 上游**不认识** `rtmpsrt://`,但也不报错:
   B站私有 SRT = RTMP/FLV over SRT。**两者不互通**。
 - 同一 host:1935 同时接受 TCP RTMP,所以 OBS 降级可用;该入口不是 SRT-only。
 - 插件现状:RTMP 线路仍只展示,不驱动输出(ADR-0005);SRT 线路在用户于 OBS
-  「设置→直播」显式选择「B站私有 SRT」后,由本插件的 `bvc_srt_output` 推 RTMP-over-SRT
-  (ADR-0007),插件不写用户推流配置。
+  「设置→直播」显式选择服务「Bilibili Live - SRT | 哔哩哔哩直播 - SRT」(插件无条件
+  合并进 rtmp-services 服务目录,ADR-0007)后,由本插件的 `bvc_srt_output` 推
+  RTMP-over-SRT;服务器与推流码均由用户手动选择/粘贴,插件不写用户推流配置。
 - 若要做私有 SRT 输出:需自实现 RTMP-over-SRT(ADR-0006/U-SRT),不能复用 OBS 原生 SRT,
   也不能复用闭源 `bvc-srt-stream.dll`(Windows PE)。
 
