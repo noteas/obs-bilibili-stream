@@ -114,6 +114,20 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 
 ## Troubleshooting
 
+- **Private SRT service entry**: the plugin merges a
+  "Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT" entry (protocol `bvc_srt`) into OBS's
+  `plugin_config/rtmp-services/services.json`. That is OBS's service catalog data file,
+  not your streaming configuration; delete the file to restore the stock list. The plugin
+  never writes your selected service, encoder or output settings.
+- **Private SRT output codecs**: H.264 / HEVC / AV1 are supported (Enhanced-RTMP
+  encapsulation, same behaviour as upstream OBS RTMP output; the output is a fork of the
+  upstream OBS 32.2 RTMP stack, see ADR-0008).
+- **Scope**: the plugin only proxies signalling (start/stop/resume live, quality
+  negotiation) and displays stream keys and server lines. Streaming itself is done by
+  OBS; the plugin never rewrites OBS settings. Backup channels are display-only (no
+  second push); multi-platform simulcast, co-broadcasting and ARTC/WHIP are out of scope.
+- **Stream key lifetime**: keys delivered at start-live are session-scoped; resume the
+  broadcast from the console after a disconnect to obtain a fresh one.
 - **Logs**: If you encounter issues, check OBS log files:
   - Windows: `C:\Users\<YourUser>\AppData\Roaming\obs-studio\logs`
   - macOS: `~/Library/Logs/obs-studio/`

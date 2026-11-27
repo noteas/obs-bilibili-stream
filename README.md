@@ -122,8 +122,12 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 - **私有 SRT 服务条目**：插件会在 OBS 的 `plugin_config/rtmp-services/services.json` 里合并一条
   「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」（协议 `bvc_srt`），这是 OBS 的服务目录数据文件，不是你的推流配置；
   删除该文件即可恢复 OBS 原生服务列表。插件不写你的已选服务、编码器或输出配置。
-- **私有 SRT 输出限制（v1）**：只支持 H.264 视频 + AAC 音频；OBS 若使用 HEVC/AV1，请先在
-  编码器设置里切到 H.264，否则输出会以「仅支持 H.264」拒绝启动。
+- **私有 SRT 输出编码器**：支持 H.264 / HEVC / AV1（Enhanced-RTMP 封装，与上游 OBS
+  RTMP 输出口径一致；fork 自上游 OBS 32.2 的 RTMP 栈，见 ADR-0008）。
+- **功能边界**：插件只代理开播/停播/恢复开播与质量协商等信令，并展示线路与推流码；
+  推流由 OBS 本身完成，插件不改写 OBS 设置。备流（主备双通道）仅展示线路，
+  不驱动第二路推流；联播、连麦、ARTC/WHIP 不在本插件范围。
+- **推流码时效**：开播信令下发的推流码为会话级有效；断播后请在控制台重新恢复开播获取。
 - **日志查看**：如果遇到问题，检查 OBS 日志文件：
   - Windows: `C:\Users\<YourUser>\AppData\Roaming\obs-studio\logs`
   - macOS: `~/Library/Logs/obs-studio/`
