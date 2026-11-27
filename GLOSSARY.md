@@ -55,6 +55,11 @@ _Avoid_: 增强 RTMP(E-RTMP 是 `rtmp://` 下的 codec 扩展,不是本协议)�
 业界默认的 MPEG-TS over SRT(FFmpeg `srt://` + mpegts muxer;OBS 原生 SRT 输出即此)。
 与 B站私有 SRT **不互通**。
 
+**私有 SRT 服务条目**:
+OBS `rtmp-services` 服务目录(`plugin_config/rtmp-services/services.json`)里的一条
+`protocol="bvc_srt"` 条目,由插件在 OBS 原生服务表基础上合并;用户在「设置→直播」选中它时,
+OBS 用本插件的 `bvc_srt_output` 推 RTMP-over-SRT。插件不写用户已选服务/编码/输出配置。
+
 **SRT 降级**:
 OBS 对未知 scheme `rtmpsrt://` 的处理:librtmp 按 scheme 长度判定失败后回落为
 `rtmp://host:1935`(TCP RTMP),不启用 SRT。因此在 OBS 里 `rtmpsrt://` 与 `rtmp://` 行为等价。
