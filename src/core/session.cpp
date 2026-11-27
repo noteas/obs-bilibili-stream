@@ -296,7 +296,12 @@ void Session::refresh(bool quiet)
 					session.m_room.error.clear();
 					session.m_room.fetched_at = std::time(nullptr);
 					cfg.room_id = res->room.room_id;
-					cfg.title = res->room.title;
+					// 房间名以服务端为准(§3.3 data.title,上游 ae01b1b 同义):换号/网页改名后
+					// 刷新即回写;服务端给空标题时保留本地值,不把面板刷成空白。
+					if (!res->room.title.empty())
+						cfg.title = res->room.title;
+					else
+						session.m_room.info.title = cfg.title;
 					cfg.csrf_token = Http::HttpClient::cookie_value("bili_jct");
 					if (res->room.area_id > 0) {
 						cfg.part_id = res->room.parent_id;
