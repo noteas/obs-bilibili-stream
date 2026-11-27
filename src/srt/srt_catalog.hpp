@@ -5,6 +5,11 @@
 
 namespace Srt {
 
+// OBS「服务」下拉里那条目的名字。OBS 直接拿 services.json 的 `name` 原文当标签
+// （rtmp-common.c 的 add_service），所以控制台/README/日志文案必须逐字引用这个常量。
+// 双语「英文 | 本地语言」是 OBS 官方服务列表的既有约定。
+inline constexpr const char *kServiceEntryName = "Bilibili Live - SRT | 哔哩哔哩直播 - SRT";
+
 // 一条要写进 OBS「服务」下拉的私有 SRT 入口。
 struct CatalogLine {
 	std::string name;

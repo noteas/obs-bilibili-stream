@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <set>
 #include <sstream>
 
@@ -14,11 +15,13 @@ namespace Srt {
 
 namespace {
 
-constexpr const char *kServiceName = "Bilibili Live - SRT | 哔哩哔哩直播 - SRT";
 constexpr const char *kProtocol = "bvc_srt";
 constexpr const char *kDefaultServerName = "B站 SRT 默认入口 | Default";
 constexpr const char *kDefaultServerUrl = "rtmpsrt://live-push.bilivideo.com/live-bvc/";
 constexpr int kFallbackFormatVersion = 5;
+// 早期版本写过的条目名。OBS 按 `name` 认条目，不清掉的话下拉里会叠出重复条目，
+// 所以合并时一并替换；同一份名单也用作 alt_names（OBS 的搜索别名）。
+constexpr const char *kLegacyEntryNames[] = {"B站私有 SRT", "bilibili_srt", "bili_srt"};
 
 std::string ReadFile(const std::string &path)
 {
@@ -87,10 +90,13 @@ json11::Json MakeServiceEntry(const std::vector<CatalogLine> &lines)
 	}
 
 	json11::Json::object entry;
-	entry["name"] = kServiceName;
+	entry["name"] = kServiceEntryName;
 	// 默认（未勾「显示全部服务」）也要出现在服务下拉里。
 	entry["common"] = true;
-	entry["alt_names"] = json11::Json::array{"B站私有 SRT", "bilibili_srt", "bili_srt"};
+	json11::Json::array alt_names;
+	for (const char *legacy : kLegacyEntryNames)
+		alt_names.emplace_back(legacy);
+	entry["alt_names"] = json11::Json(std::move(alt_names));
 	entry["protocol"] = kProtocol;
 	entry["stream_key_link"] = "https://link.bilibili.com/p/center/index#/my-room/start-live";
 	entry["servers"] = json11::Json(std::move(servers));
@@ -102,8 +108,10 @@ bool IsOurEntry(const json11::Json &item)
 	if (!item.is_object())
 		return false;
 	const std::string name = item["name"].string_value();
-	return name == kServiceName || name == "B站私有 SRT" || name == "bilibili_srt" ||
-	       name == "bili_srt";
+	if (name == kServiceEntryName)
+		return true;
+	return std::find(std::begin(kLegacyEntryNames), std::end(kLegacyEntryNames), name) !=
+	       std::end(kLegacyEntryNames);
 }
 
 } // namespace
@@ -125,7 +133,8 @@ bool MergeServiceCatalogJson(const std::string &base, const std::vector<CatalogL
 	}
 	services.push_back(MakeServiceEntry(lines));
 
-	json11::Json::object obj;
+	// 顶层键原样保留（`$schema`、将来 OBS 可能新增的字段……），只替换我们负责的两项。
+	json11::Json::object obj = root.object_items();
 	obj["format_version"] = root["format_version"].is_number() ? root["format_version"]
 								  : json11::Json(kFallbackFormatVersion);
 	obj["services"] = json11::Json(std::move(services));
@@ -135,6 +144,11 @@ bool MergeServiceCatalogJson(const std::string &base, const std::vector<CatalogL
 
 void UpdateServiceCatalog(const std::vector<CatalogLine> &lines)
 {
+	// 读-改-写整个文件必须串行。当前调用方全在 OBS UI 线程（开播成功回调、
+	// 打开控制台），加锁是为未来新增调用方兜底，也明确这个函数的线程契约。
+	static std::mutex write_mutex;
+	std::lock_guard<std::mutex> lock(write_mutex);
+
 	obs_module_t *mod = obs_get_module("rtmp-services");
 	if (!mod) {
 		blog(LOG_WARNING, "[bvc-srt] 未找到 rtmp-services 模块，跳过服务目录更新");
@@ -177,9 +191,10 @@ void UpdateServiceCatalog(const std::vector<CatalogLine> &lines)
 		return;
 
 	blog(LOG_INFO,
-	     "[bvc-srt] 已更新 OBS 服务列表（%s）：设置→直播→服务选「B站私有 SRT」，"
-	     "服务器选对应 rtmpsrt:// 地址，推流码从控制台复制（不写用户推流配置）",
-	     user_path.c_str());
+	     "[bvc-srt] 已更新 OBS 服务目录（%s）：设置→直播→服务选「%s」，服务器下拉即本次写入的 "
+	     "rtmpsrt:// 线路（本次无 rtmpsrt 线路时为默认入口），推流码按控制台复制粘贴手动填写"
+	     "（插件不写用户推流配置）",
+	     user_path.c_str(), kServiceEntryName);
 }
 
 } // namespace Srt

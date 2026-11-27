@@ -24,6 +24,7 @@
 
 #ifdef BILI_ENABLE_SRT
 #include "srt/srt_catalog.hpp"
+#include "srt/srt_target.hpp" // IsSrtLine / kServiceEntryName
 #endif
 
 // All state below is touched from the OBS UI thread only. HTTP workers write to
@@ -91,15 +92,19 @@ int g_draft_area = 0;
 std::string g_quality_info;
 
 // 把当前场次的 rtmpsrt:// 线路合并进 OBS 的 rtmp-services 服务目录
-// （用户级 services.json；只增服务条目，不写用户已选的推流配置）。
-void refresh_srt_catalog()
+// （用户级 services.json；只增服务条目，不写用户已选的推流配置，ADR-0007）。
+// **无条件写**：条目本身是「本插件支持私有 SRT」的能力声明，即使本次没有 rtmpsrt:// 线路
+// （恢复场次只给 rtmp 线路）也要保证服务下拉里有这一条，里面放默认入口，
+// 用不用、改成什么地址由用户自己决定。
+// 返回值 = 本次是否写入了真实的 rtmpsrt:// 线路，供文案区分。
+bool refresh_srt_catalog()
 {
 #ifdef BILI_ENABLE_SRT
 	std::vector<Srt::CatalogLine> lines;
 	const auto &cfg = g_config.config();
 	for (size_t i = 0; i < cfg.stream_targets.size(); ++i) {
 		const auto &t = cfg.stream_targets[i];
-		if (t.addr.rfind("rtmpsrt://", 0) != 0)
+		if (!Srt::IsSrtLine(t.addr))
 			continue;
 		std::string name =
 			std::string(t.backup ? "备流" : "主线路") + std::to_string(i + 1) + " · " + t.protocol;
@@ -108,6 +113,9 @@ void refresh_srt_catalog()
 		lines.push_back({name, t.addr});
 	}
 	Srt::UpdateServiceCatalog(lines);
+	return !lines.empty();
+#else
+	return false;
 #endif
 }
 
@@ -451,6 +459,9 @@ void do_recover_stream()
 			cfg.stream_targets.push_back(
 				Bili::Config::StreamTarget{"rtmp", "", result->addr, result->code, false});
 			g_config.save();
+			// 恢复路径只产出 rtmp 线路，这里调用是安全的：没有 rtmpsrt:// 线路时
+			// refresh_srt_catalog() 不写任何东西（不会用默认入口盖掉上次的真实线路）。
+			refresh_srt_catalog();
 			g_session_in_progress = false;
 			set_status(LEVEL_INFO, "已找回进行中场次(来源: " + result->source +
 						       "),推流地址已展示(可复制),请手动填入 OBS 后点\"开始直播\"");
@@ -510,7 +521,12 @@ void do_start_live()
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
 				g_config.save();
-				refresh_srt_catalog();
+				std::string srt_hint;
+#ifdef BILI_ENABLE_SRT
+				if (refresh_srt_catalog())
+					srt_hint = std::string(";私有 SRT 线路已写入 OBS 服务列表,设置→直播→服务选「") +
+						   Srt::kServiceEntryName + "」";
+#endif
 				const size_t n = cfg.stream_targets.size();
 				// message 在成功分支只承载「备流自动判定」类提示
 				// (无资格已按普通发送 / 备流被拒已回退)。
@@ -518,7 +534,7 @@ void do_start_live()
 					result->message.empty() ? LEVEL_INFO : LEVEL_WARNING,
 					"开播成功,已获取 " + std::to_string(n) +
 						" 条推流线路(地址/推流码可复制);插件未修改 OBS 配置,请手动填入 OBS 推流设置后点\"开始直播\"" +
-						(result->message.empty() ? "" : " — " + result->message));
+						srt_hint + (result->message.empty() ? "" : " — " + result->message));
 			} else if (!result->facePage.empty()) {
 				// 60043: auth-middle 是网页不是二维码,按官方直接开认证窗口。
 				const bool shown = Core::openInBrowser(result->facePage);
@@ -926,18 +942,20 @@ obs_properties_t *console_properties(void *data)
 	// --- 私有 SRT 输出(ADR-0007) ---
 	// 服务条目由插件合并进 rtmp-services 的 services.json；用户仍在 OBS
 	// 「设置→直播」自己选服务、自己粘贴推流码、自己点开始直播，插件不写用户配置。
+#ifdef BILI_ENABLE_SRT
 	if (cfg.streaming) {
 		bool has_srt = false;
 		for (const auto &t : cfg.stream_targets)
-			has_srt = has_srt || t.addr.rfind("rtmpsrt://", 0) == 0;
-		obs_properties_add_text(
-			props, "st_srt_hint",
-			has_srt ? "已把本次 rtmpsrt:// 线路写入 OBS 服务列表：设置→直播→服务选"
-				  "「B站私有 SRT」，服务器选对应地址，推流码从上面复制；开始直播仍由你在 OBS 点。"
-				  "若设置窗口已打开，请先关闭再打开以刷新服务列表。"
-				: "本次响应没有 rtmpsrt:// 线路，OBS 服务列表里的 B站私有 SRT 暂用默认入口。",
-			OBS_TEXT_INFO);
+			has_srt = has_srt || Srt::IsSrtLine(t.addr);
+		const std::string hint =
+			has_srt ? std::string("已把本次 rtmpsrt:// 线路写入 OBS 服务列表：设置→直播→服务选「") +
+					  Srt::kServiceEntryName +
+				  "」，服务器选本次线路，推流码从上面复制后手动填写；开始直播仍由你在 OBS 点。"
+				  "设置窗口若已开着，关掉再打开即可看到新条目。"
+				: "本次响应没有 rtmpsrt:// 线路（恢复场次也只给 rtmp），OBS 服务列表未改动。";
+		obs_properties_add_text(props, "st_srt_hint", hint.c_str(), OBS_TEXT_INFO);
 	}
+#endif
 
 	// --- 直播间设置 ---
 	obs_property_t *title = obs_properties_add_text(props, KEY_TITLE, "直播间标题", OBS_TEXT_DEFAULT);
@@ -1091,7 +1109,8 @@ void ConsoleOpenPanel()
 	if (!g_source)
 		return;
 	// OBS 的 rtmp-services 会在启动时联网更新 services.json 并整表覆盖；用户打开
-	// 控制台时再合并一次，保证「B站私有 SRT」条目在 OBS 设置里可用。
+	// 控制台时再合并一次，保证私有 SRT 条目在 OBS 设置里可用（本次没有 rtmpsrt://
+	// 线路时写入默认入口）。
 	refresh_srt_catalog();
 	// 草稿与已提交设置对齐(上次 OK/取消/异步刷新遗留的草稿不污染本次对话框:
 	// 二级列表条目与下拉选中都以草稿为锚,见 on_part_changed)。无已提交值时回
