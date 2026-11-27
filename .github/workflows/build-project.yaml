@@ -118,6 +118,14 @@ jobs:
         shell: bash
         run: python3 tests/check_qt_symbols.py build_x86_64/bilibili-stream-for-obs.so
 
+      # 无头集成:真实 libobs + 真实 Qt(offscreen)+ 假 B站服务端,把编译出的 .so 装进来
+      # 走完登录/获取推流码/二次确认/找回/退出卸载全流程(libobs 热键子系统要 X display)。
+      # 只在 24.04 跑:CA 垫片对应发行版 libcurl 的 CA 装载入口。
+      - name: Headless integration harness 🧪
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: xvfb-run -a tests/harness/run_headless.sh build_x86_64/tests/bili_harness build_x86_64/bilibili-stream-for-obs.so
+
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
         with:
