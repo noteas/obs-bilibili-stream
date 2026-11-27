@@ -30,7 +30,7 @@ struct Config {
 		std::string protocol; // rtmp / srt / bmtsrt / bmt …(官方给什么展示什么)
 		std::string provider; // txy / qn / …(可空)
 		std::string addr;
-		std::string key; // 直连线路推流码=响应条目自带 code(缺则 live_key);见契约 §4.1 第5步
+		std::string key;     // 直连线路推流码=响应条目自带 code(缺则 live_key);见契约 §4.1 第5步
 		bool backup = false; // 来自 protocols_backup[]
 	};
 	std::vector<StreamTarget> stream_targets;
