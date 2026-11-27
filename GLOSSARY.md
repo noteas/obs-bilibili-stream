@@ -46,6 +46,9 @@ _Avoid_: 备选地址、切换式(把备流当成同 key 的备用地址是错�
 B站 `protocols[]` 中 `protocol=srt` 线路的实际封装:RTMP/FLV 载荷跑在 SRT(UDP) 传输上,
 地址 scheme 为 `rtmpsrt://`,官方客户端用 `bvc_srt_output`(`bvc-srt-stream.dll`)推流;
 同族 `bmtsrt` = BMT over SRT。传输是**真 SRT**(ARQ/重传/RTT),但载荷不是 MPEG-TS。
+固定口径(E-24):UDP **1935**、**无 SRT streamid**、SRT 参数 `TSBPD`/`TLPKTDROP` 关闭、
+`CONNTIMEO=10s`、`PAYLOADSIZE=1456`、`LATENCY=200ms`、`MAXBW=2MiB/s`、`LINGER=1s`;
+隧道里是完整 RTMP 握手 + chunk,无私有帧头、无加密。
 _Avoid_: 增强 RTMP(E-RTMP 是 `rtmp://` 下的 codec 扩展,不是本协议)、裸称 SRT(会与标准 SRT 混淆)
 
 **标准 SRT**:
