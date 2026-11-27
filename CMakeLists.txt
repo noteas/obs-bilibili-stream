@@ -10,6 +10,9 @@ include(compilerconfig)
 include(defaults)
 include(helpers)
 
+option(ENABLE_SRT_OUTPUT "Bilibili private SRT output (forked OBS RTMP stack, ADR-0008)" ON)
+option(ENABLE_HEVC "Enable HEVC in the forked RTMP stack" ON)
+
 configure_file(src/plugin-support.c.in src/plugin-support.c @ONLY)
 
 execute_process(
@@ -51,11 +54,21 @@ add_library(
   src/srt/srt_catalog.cpp
   src/srt/srt_target.hpp
   src/srt/srt_target.cpp
+  src/srt/srt_module.hpp
+  src/srt/srt_module.cpp
 )
 
 find_package(libobs REQUIRED)
 find_package(CURL REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs CURL::libcurl)
+
+# B站私有 SRT 输出 = fork 的上游 RTMP 栈（只换 socket 层，ADR-0008），静态库链入；
+# 缺 libsrt 时 fork 的 CMake 硬失败。BILI_ENABLE_SRT 只门控注册路径（srt_module.cpp）。
+if(ENABLE_SRT_OUTPUT)
+  add_subdirectory(third_party/obs-rtmp-srt)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE obs-rtmp-srt)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE BILI_ENABLE_SRT)
+endif()
 
 # 离线回归测试（tests/，CTest）：-DBUILD_TESTS=OFF 可关。
 option(BUILD_TESTS "Build offline regression tests (ctest)" ON)

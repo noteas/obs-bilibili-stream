@@ -4,6 +4,7 @@
 #include "bilibili_api.hpp"
 #include "http_client.hpp"
 #include "plugin_utils.hpp"
+#include "srt/srt_module.hpp"
 
 OBS_DECLARE_MODULE()
 // NOTE: deliberately no OBS_MODULE_USE_DEFAULT_LOCALE — since ADR-0003 all UI
@@ -22,6 +23,7 @@ bool obs_module_load(void)
 	obs_log(LOG_INFO, "插件版本: %s, commit: %s", PLUGIN_VERSION, PLUGIN_COMMIT);
 	Bili::BiliApi::init();
 	obs_register_source(UI::ConsoleSourceInfo());
+	Srt::Register();
 	UI::ConsoleCreate();
 
 	obs_frontend_add_tools_menu_item("B站直播控制台", menu_open_console, nullptr);
