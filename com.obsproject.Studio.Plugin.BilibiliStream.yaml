@@ -47,6 +47,10 @@ modules:
     config-opts:
       # 同 mbedtls:CMake 4.x 对老项目的 policy 下限抬升
       - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      # srt 的老式 GNUInstallDirs 用法在 flatpak 工具链下读出空 BINDIR,
+      # 其 install(PROGRAMS scripts/srt-ffplay DESTINATION ${CMAKE_INSTALL_BINDIR})
+      # 在 CMake 4 被判 "no DESTINATION" ⇒ 显式给值
+      - -DCMAKE_INSTALL_BINDIR=bin
       - -DENABLE_STATIC=OFF
       - -DENABLE_APPS=OFF
       - -DENABLE_LOGGING=OFF
