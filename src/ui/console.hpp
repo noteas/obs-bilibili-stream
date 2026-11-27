@@ -18,4 +18,8 @@ void ConsoleDestroy();
 
 void ConsoleOpenPanel(); // open the properties dialog
 
+// 把所有已保存的 rtmpsrt:// 线路刷新进 OBS 的 rtmp-services 服务目录
+// （模块加载完成后调用；rtmp-services 必须已加载）。
+void ConsoleRefreshSrtCatalog();
+
 } // namespace UI

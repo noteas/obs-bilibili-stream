@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "bilibili_api.hpp"
 #include "core/config_manager.hpp"
@@ -20,6 +21,10 @@
 #include "http_client.hpp"
 #include "json11/json11.hpp"
 #include "plugin_utils.hpp"
+
+#ifdef BILI_ENABLE_SRT
+#include "srt/srt_catalog.hpp"
+#endif
 
 // All state below is touched from the OBS UI thread only. HTTP workers write to
 // the shared result structs they captured and hand control back through
@@ -84,6 +89,27 @@ int g_draft_part = 0;
 int g_draft_area = 0;
 // §5.4/§5.5 拉取结果的多行展示(推荐码率/干预/编码能力),空=未拉取。
 std::string g_quality_info;
+
+// 把当前场次的 rtmpsrt:// 线路合并进 OBS 的 rtmp-services 服务目录
+// （用户级 services.json；只增服务条目，不写用户已选的推流配置）。
+void refresh_srt_catalog()
+{
+#ifdef BILI_ENABLE_SRT
+	std::vector<Srt::CatalogLine> lines;
+	const auto &cfg = g_config.config();
+	for (size_t i = 0; i < cfg.stream_targets.size(); ++i) {
+		const auto &t = cfg.stream_targets[i];
+		if (t.addr.rfind("rtmpsrt://", 0) != 0)
+			continue;
+		std::string name =
+			std::string(t.backup ? "备流" : "主线路") + std::to_string(i + 1) + " · " + t.protocol;
+		if (!t.provider.empty())
+			name += "/" + t.provider;
+		lines.push_back({name, t.addr});
+	}
+	Srt::UpdateServiceCatalog(lines);
+#endif
+}
 
 void refresh_props()
 {
@@ -484,6 +510,7 @@ void do_start_live()
 				if (!result->mid.empty())
 					cfg.mid = result->mid;
 				g_config.save();
+				refresh_srt_catalog();
 				const size_t n = cfg.stream_targets.size();
 				// message 在成功分支只承载「备流自动判定」类提示
 				// (无资格已按普通发送 / 备流被拒已回退)。
@@ -814,6 +841,7 @@ bool on_button(obs_properties_t *, obs_property_t *, void *data)
 	case ACT_OPEN_ROOM:
 		open_live_room();
 		break;
+
 	}
 	return false; // async results refresh through obs_source_update_properties()
 }
@@ -893,6 +921,22 @@ obs_properties_t *console_properties(void *data)
 				obs_data_set_default_string(settings, key_id.c_str(), t.key.c_str());
 			}
 		}
+	}
+
+	// --- 私有 SRT 输出(ADR-0007) ---
+	// 服务条目由插件合并进 rtmp-services 的 services.json；用户仍在 OBS
+	// 「设置→直播」自己选服务、自己粘贴推流码、自己点开始直播，插件不写用户配置。
+	if (cfg.streaming) {
+		bool has_srt = false;
+		for (const auto &t : cfg.stream_targets)
+			has_srt = has_srt || t.addr.rfind("rtmpsrt://", 0) == 0;
+		obs_properties_add_text(
+			props, "st_srt_hint",
+			has_srt ? "已把本次 rtmpsrt:// 线路写入 OBS 服务列表：设置→直播→服务选"
+				  "「B站私有 SRT」，服务器选对应地址，推流码从上面复制；开始直播仍由你在 OBS 点。"
+				  "若设置窗口已打开，请先关闭再打开以刷新服务列表。"
+				: "本次响应没有 rtmpsrt:// 线路，OBS 服务列表里的 B站私有 SRT 暂用默认入口。",
+			OBS_TEXT_INFO);
 	}
 
 	// --- 直播间设置 ---
@@ -1007,6 +1051,7 @@ void ConsoleCreate()
 {
 	g_alive = true;
 	g_config.load();
+	refresh_srt_catalog();
 	g_draft_title = g_config.config().title;
 	g_draft_part = g_config.config().part_id;
 	g_draft_area = g_config.config().area_id;
@@ -1040,6 +1085,11 @@ void ConsoleDestroy()
 		obs_source_release(g_source);
 		g_source = nullptr;
 	}
+}
+
+void ConsoleRefreshSrtCatalog()
+{
+	refresh_srt_catalog();
 }
 
 void ConsoleOpenPanel()
