@@ -30,7 +30,8 @@ static bool enum_output_cb(void *data, const char *id)
 int main()
 {
 	const char *module_config = "/tmp/opencode/obs-test-config/plugin_config";
-	std::system("rm -rf /tmp/opencode/obs-test-config /tmp/opencode/obs-test-bin && mkdir -p /tmp/opencode/obs-test-bin /tmp/opencode/obs-test-config/plugin_config");
+	std::system(
+		"rm -rf /tmp/opencode/obs-test-config /tmp/opencode/obs-test-bin && mkdir -p /tmp/opencode/obs-test-bin /tmp/opencode/obs-test-config/plugin_config");
 	std::system("ln -s /usr/lib/x86_64-linux-gnu/obs-plugins/rtmp-services.so /tmp/opencode/obs-test-bin/");
 	std::system("mkdir -p /tmp/opencode/obs-test-data");
 
@@ -120,7 +121,8 @@ int main()
 		obs_service_release(service);
 	}
 
-	std::system("grep -c 'Bilibili Live - SRT' /tmp/opencode/obs-test-config/plugin_config/rtmp-services/services.json || true");
+	std::system(
+		"grep -c 'Bilibili Live - SRT' /tmp/opencode/obs-test-config/plugin_config/rtmp-services/services.json || true");
 	obs_shutdown();
 	std::printf(g_fail ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fail);
 	return g_fail ? 1 : 0;

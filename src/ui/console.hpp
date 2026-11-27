@@ -18,5 +18,4 @@ void ConsoleDestroy();
 
 void ConsoleOpenPanel(); // open the properties dialog
 
-
 } // namespace UI
