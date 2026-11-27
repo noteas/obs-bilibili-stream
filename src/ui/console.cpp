@@ -22,10 +22,8 @@
 #include "json11/json11.hpp"
 #include "plugin_utils.hpp"
 
-#ifdef BILI_ENABLE_SRT
 #include "srt/srt_catalog.hpp"
 #include "srt/srt_target.hpp" // IsSrtLine / kServiceEntryName
-#endif
 
 // All state below is touched from the OBS UI thread only. HTTP workers write to
 // the shared result structs they captured and hand control back through
@@ -99,7 +97,6 @@ std::string g_quality_info;
 // 返回值 = 本次是否写入了真实的 rtmpsrt:// 线路，供文案区分。
 bool refresh_srt_catalog()
 {
-#ifdef BILI_ENABLE_SRT
 	std::vector<Srt::CatalogLine> lines;
 	const auto &cfg = g_config.config();
 	for (size_t i = 0; i < cfg.stream_targets.size(); ++i) {
@@ -114,9 +111,6 @@ bool refresh_srt_catalog()
 	}
 	Srt::UpdateServiceCatalog(lines);
 	return !lines.empty();
-#else
-	return false;
-#endif
 }
 
 void refresh_props()
@@ -522,11 +516,9 @@ void do_start_live()
 					cfg.mid = result->mid;
 				g_config.save();
 				std::string srt_hint;
-#ifdef BILI_ENABLE_SRT
 				if (refresh_srt_catalog())
 					srt_hint = std::string(";私有 SRT 线路已写入 OBS 服务列表,设置→直播→服务选「") +
 						   Srt::kServiceEntryName + "」";
-#endif
 				const size_t n = cfg.stream_targets.size();
 				// message 在成功分支只承载「备流自动判定」类提示
 				// (无资格已按普通发送 / 备流被拒已回退)。
@@ -942,7 +934,6 @@ obs_properties_t *console_properties(void *data)
 	// --- 私有 SRT 输出(ADR-0007) ---
 	// 服务条目由插件合并进 rtmp-services 的 services.json；用户仍在 OBS
 	// 「设置→直播」自己选服务、自己粘贴推流码、自己点开始直播，插件不写用户配置。
-#ifdef BILI_ENABLE_SRT
 	if (cfg.streaming) {
 		bool has_srt = false;
 		for (const auto &t : cfg.stream_targets)
@@ -951,13 +942,12 @@ obs_properties_t *console_properties(void *data)
 			has_srt ? std::string("已把本次 rtmpsrt:// 线路写入 OBS 服务列表：设置→直播→服务选「") +
 					  Srt::kServiceEntryName +
 				  "」，服务器选本次线路，推流码从上面复制后手动填写；开始直播仍由你在 OBS 点。"
-				  "视频支持 H.264/HEVC/AV1(+AAC)：HEVC/AV1 是插件自有扩展，按上游 OBS 的 "
-				  "Enhanced-RTMP 口径封装（官方直播姬此链路只发 H.264/AAC），能否生效以服务端为准。"
+				  "视频支持 H.264/HEVC/AV1(+AAC)：HEVC/AV1 按上游 OBS 的 Enhanced-RTMP 口径封装"
+				  "（官方直播姬此链路只发 H.264/AAC），能否生效以服务端为准。"
 				  "设置窗口若已开着，关掉再打开即可看到新条目。"
 				: "本次响应没有 rtmpsrt:// 线路（恢复场次也只给 rtmp），OBS 服务列表未改动。";
 		obs_properties_add_text(props, "st_srt_hint", hint.c_str(), OBS_TEXT_INFO);
 	}
-#endif
 
 	// --- 直播间设置 ---
 	obs_property_t *title = obs_properties_add_text(props, KEY_TITLE, "直播间标题", OBS_TEXT_DEFAULT);

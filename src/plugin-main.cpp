@@ -5,10 +5,6 @@
 #include "http_client.hpp"
 #include "plugin_utils.hpp"
 
-#ifdef BILI_ENABLE_SRT
-#include "srt/srt_module.hpp"
-#endif
-
 OBS_DECLARE_MODULE()
 // NOTE: deliberately no OBS_MODULE_USE_DEFAULT_LOCALE — since ADR-0003 all UI
 // text is a hard-coded Chinese literal, obs_module_text() is unused.
@@ -25,9 +21,6 @@ bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "插件版本: %s, commit: %s", PLUGIN_VERSION, PLUGIN_COMMIT);
 	Bili::BiliApi::init();
-#ifdef BILI_ENABLE_SRT
-	Srt::Register();
-#endif
 	obs_register_source(UI::ConsoleSourceInfo());
 	UI::ConsoleCreate();
 
@@ -43,9 +36,6 @@ void obs_module_unload(void)
 	// continuations first; then the HTTP layer stops the worker and closes
 	// the delivery channel.
 	UI::ConsoleDestroy();
-#ifdef BILI_ENABLE_SRT
-	Srt::Unregister();
-#endif
 	Bili::BiliApi::cleanup();
 	Http::HttpClient::cleanup();
 	obs_log(LOG_INFO, "插件已卸载");
