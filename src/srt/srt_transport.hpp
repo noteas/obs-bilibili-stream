@@ -18,7 +18,8 @@ void EnsureSrtStarted();
 
 // B站私有 SRT 传输。参数固定按官方 bvc-srt-stream.dll 逆向结论（E-24）：
 //   TRANSTYPE=live, CONNTIMEO=10000ms, PAYLOADSIZE=1456, LATENCY=200ms,
-//   TSBPD=off, TLPKTDROP=off, MAXBW=2MiB/s(可覆盖), LINGER=1s。
+//   TSBPD=off, TLPKTDROP=off, MAXBW=2MiB/s(可覆盖), LINGER=1s,
+//   RCVTIMEO=clamp(srt_recv_timeout_sec,3,60)×1000ms。
 // 不设 streamid、不加密——鉴权在 RTMP URL 里。
 class SrtTransport : public ByteStream {
 public:
@@ -41,9 +42,14 @@ private:
 	bool ApplyOptions(std::string &error);
 	bool SetIntOpt(SRT_SOCKOPT opt, int value, const char *name, std::string &error);
 	bool SetInt64Opt(SRT_SOCKOPT opt, int64_t value, const char *name, std::string &error);
+	// 建一个只关心读事件的 epoll，让 Read() 能按调用方给的 timeout_ms 准时返回；
+	// 失败时退化：把 SRTO_RCVTIMEO 降到轮询粒度，靠它兜底。
+	bool SetupReadPoll();
+	void TeardownReadPoll();
 
 	Target m_target;
 	SRTSOCKET m_sock = SRT_INVALID_SOCK;
+	int m_read_poll = -1; // srt_epoll_create() 的 id；<0 = 不可用
 	std::atomic<uint64_t> m_bytes_sent{0};
 	std::mutex m_write_mutex;
 	// LiveCC 要求每次 srt_recv 的缓冲区 >= 最大 payload（约 1316B），否则报

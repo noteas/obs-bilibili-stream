@@ -5,6 +5,8 @@
 #include <cstring>
 #include <random>
 
+#include "srt/byte_io.hpp"
+
 namespace Srt {
 
 namespace {
@@ -20,44 +22,6 @@ constexpr uint8_t kMsgCommandAmf0 = 20;
 constexpr uint32_t kCmdChunkStream = 3;
 constexpr uint32_t kMediaChunkStream = 4;
 constexpr uint32_t kCtrlChunkStream = 2;
-
-uint32_t ReadU24(const uint8_t *p)
-{
-	return (uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | uint32_t(p[2]);
-}
-
-uint32_t ReadU32BE(const uint8_t *p)
-{
-	return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
-}
-
-uint32_t ReadU32LE(const uint8_t *p)
-{
-	return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
-}
-
-void PutU24(std::vector<uint8_t> &out, uint32_t v)
-{
-	out.push_back(static_cast<uint8_t>(v >> 16));
-	out.push_back(static_cast<uint8_t>(v >> 8));
-	out.push_back(static_cast<uint8_t>(v));
-}
-
-void PutU32BE(std::vector<uint8_t> &out, uint32_t v)
-{
-	out.push_back(static_cast<uint8_t>(v >> 24));
-	out.push_back(static_cast<uint8_t>(v >> 16));
-	out.push_back(static_cast<uint8_t>(v >> 8));
-	out.push_back(static_cast<uint8_t>(v));
-}
-
-void PutU32LE(std::vector<uint8_t> &out, uint32_t v)
-{
-	out.push_back(static_cast<uint8_t>(v));
-	out.push_back(static_cast<uint8_t>(v >> 8));
-	out.push_back(static_cast<uint8_t>(v >> 16));
-	out.push_back(static_cast<uint8_t>(v >> 24));
-}
 
 std::string StatusText(const Amf::CommandInfo &ci)
 {
@@ -498,6 +462,33 @@ bool RtmpClient::HandshakeAndPublish(std::string &error)
 		return false;
 	}
 	return true;
+}
+
+// 停播收尾。librtmp `RTMP_Close()`（rtmp.c L4324-4348）在关 socket 前，对每个
+// `streams[idx].id > 0` 的流：发布方向先 FCUnpublish(playpath)，再 deleteStream(streamId)，
+// 两者都不等响应（E-25 §5）。这里是单流实现，所以就是这一对。
+void RtmpClient::SendTeardown()
+{
+	if (m_stream_id == 0 || m_teardown_sent)
+		return;
+	m_teardown_sent = true;
+	const uint32_t id = m_stream_id;
+
+	std::string ignored;
+
+	std::vector<uint8_t> b;
+	Amf::WriteString(b, "FCUnpublish");
+	Amf::WriteNumber(b, ++m_transaction);
+	Amf::WriteNull(b);
+	Amf::WriteString(b, m_target.stream);
+	SendMessage(kMsgCommandAmf0, kCmdChunkStream, 0, 0, b.data(), b.size(), ignored);
+
+	b.clear();
+	Amf::WriteString(b, "deleteStream");
+	Amf::WriteNumber(b, ++m_transaction);
+	Amf::WriteNull(b);
+	Amf::WriteNumber(b, static_cast<double>(id));
+	SendMessage(kMsgCommandAmf0, kCmdChunkStream, 0, 0, b.data(), b.size(), ignored);
 }
 
 bool RtmpClient::SendTag(const FlvTag &tag, std::string &error)

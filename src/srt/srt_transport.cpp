@@ -22,9 +22,22 @@ constexpr int kLatencyMs = 200;            // E-24：官方 SRTO_LATENCY
 constexpr int64_t kDefaultMaxBandwidth = 2 * 1024 * 1024; // E-24：官方默认 2 MiB/s
 constexpr int kSendChunk = 1316;           // LiveCC 最大 payload（官方 0x560=1376 在 libsrt 1.5 会超限）
 constexpr size_t kRecvBuffer = 64 * 1024;  // >= LiveCC 最大 payload
-// 官方把 SRTO_RCVTIMEO 设为 srt_recv_timeout_sec；我们固定 500ms 只作为读线程的
-// 轮询粒度（不改变线上行为），这样 stop() 能在一个轮询周期内结束。
+// 读线程的轮询粒度：只在 epoll 建不起来、只能靠 SRTO_RCVTIMEO 兜底时使用，
+// 保证 stop() 能在一个轮询周期内打断读线程。
 constexpr int kRecvPollMs = 500;
+
+// 官方 SRTO_RCVTIMEO = clamp(srt_recv_timeout_sec, 3, 60) × 1000，
+// 0 → 3、负数 → 30（E-24 §5：bvc-srt-stream 对 bililive.dll 传进来的值做的 clamp）。
+int OfficialRecvTimeoutMs(int sec)
+{
+	int v = sec;
+	if (v < 0)
+		v = 30;
+	else if (v == 0)
+		v = 3;
+	v = std::min(60, std::max(3, v));
+	return v * 1000;
+}
 
 bool IsRecoverableTimeout(int code)
 {
@@ -92,9 +105,37 @@ bool SrtTransport::ApplyOptions(std::string &error)
 		error = std::string("设置 SRTO_LINGER 失败: ") + srt_getlasterror_str();
 		return false;
 	}
-	if (!SetIntOpt(SRTO_RCVTIMEO, kRecvPollMs, "SRTO_RCVTIMEO", error))
+	// 有 epoll 精确控制读超时就按官方口径设 RCVTIMEO；epoll 建不起来时退化成本地轮询粒度，
+	// 否则 stop() 要等满几秒才能打断读线程。
+	const int rcv_timeout_ms = m_read_poll >= 0 ? OfficialRecvTimeoutMs(m_target.recv_timeout_sec) : kRecvPollMs;
+	if (!SetIntOpt(SRTO_RCVTIMEO, rcv_timeout_ms, "SRTO_RCVTIMEO", error))
 		return false;
 	return true;
+}
+
+// 只关心读事件的 epoll。失败不致命：Read() 退化成依赖 SRTO_RCVTIMEO 的阻塞读。
+bool SrtTransport::SetupReadPoll()
+{
+	m_read_poll = srt_epoll_create();
+	if (m_read_poll == SRT_ERROR)
+		return false;
+	const int32_t events = SRT_EPOLL_IN;
+	if (srt_epoll_add_usock(m_read_poll, m_sock, &events) == SRT_ERROR) {
+		srt_epoll_release(m_read_poll);
+		m_read_poll = -1;
+		return false;
+	}
+	return true;
+}
+
+void SrtTransport::TeardownReadPoll()
+{
+	if (m_read_poll < 0)
+		return;
+	// release 会连带丢掉登记；单独 remove 在对端已断开时会打出
+	// "not found as either socket or group" 的噪音日志。
+	srt_epoll_release(m_read_poll);
+	m_read_poll = -1;
 }
 
 bool SrtTransport::Connect(std::string &error)
@@ -111,6 +152,10 @@ bool SrtTransport::Connect(std::string &error)
 		error = std::string("创建 SRT socket 失败: ") + srt_getlasterror_str();
 		return false;
 	}
+
+	// 读事件 epoll 先建好：ApplyOptions 要据此决定 SRTO_RCVTIMEO 的取值。
+	// 建不起来不是错误，Read() 会退化成依赖 SRTO_RCVTIMEO 的阻塞读。
+	SetupReadPoll();
 
 	if (!ApplyOptions(error)) {
 		Close();
@@ -199,7 +244,7 @@ bool SrtTransport::Write(const void *data, size_t len, std::string &error)
 	return true;
 }
 
-int SrtTransport::Read(void *data, size_t len, int /*timeout_ms*/, std::string &error)
+int SrtTransport::Read(void *data, size_t len, int timeout_ms, std::string &error)
 {
 	if (m_sock == SRT_INVALID_SOCK) {
 		error = "SRT 未连接";
@@ -207,6 +252,20 @@ int SrtTransport::Read(void *data, size_t len, int /*timeout_ms*/, std::string &
 	}
 
 	if (m_read_off >= m_read_len) {
+		// 先用 epoll 等到「有数据」或「到期」，这样 timeout_ms 才是真话；
+		// 没有 epoll 时直接 srt_recv，靠 SRTO_RCVTIMEO 兜底。
+		if (m_read_poll >= 0) {
+			SRT_EPOLL_EVENT events[1];
+			const int ready = srt_epoll_uwait(m_read_poll, events, 1,
+							   timeout_ms > 0 ? timeout_ms : kRecvPollMs);
+			if (ready == 0)
+				return 0;
+			if (ready < 0) {
+				error = std::string("SRT 等待读事件失败: ") + srt_getlasterror_str();
+				return -1;
+			}
+		}
+
 		m_read_buf.resize(kRecvBuffer);
 		const int got = srt_recv(m_sock, reinterpret_cast<char *>(m_read_buf.data()),
 					 static_cast<int>(m_read_buf.size()));
@@ -234,6 +293,7 @@ int SrtTransport::Read(void *data, size_t len, int /*timeout_ms*/, std::string &
 
 void SrtTransport::Close()
 {
+	TeardownReadPoll(); // 先把 socket 摘出 epoll，再释放 epoll id
 	if (m_sock != SRT_INVALID_SOCK) {
 		srt_close(m_sock);
 		m_sock = SRT_INVALID_SOCK;

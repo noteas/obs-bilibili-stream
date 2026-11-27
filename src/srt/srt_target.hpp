@@ -5,6 +5,12 @@
 
 namespace Srt {
 
+// 私有 SRT 线路的 scheme。librtmp 内部按大小写敏感的 strncmp 比协议名，我们对用户输入
+// 放宽成大小写不敏感；「这条线路是不是私有 SRT」一律用 IsSrtLine() 判，避免各处口径不一。
+inline constexpr const char *kSrtScheme = "rtmpsrt://";
+
+bool IsSrtLine(const std::string &url);
+
 // 一条私有 SRT 推流目标（rtmpsrt://）。字段口径与 `bvc_srt_output`/librtmp 对齐
 // （E-24）：host/port 用于 SRT(UDP) 连接，app 用于 RTMP connect，stream 是 publish 的
 // 推流名（= 服务端线路条目里的 code，原样，通常形如 `?streamname=…&key=…`），

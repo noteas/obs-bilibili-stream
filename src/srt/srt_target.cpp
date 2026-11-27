@@ -45,6 +45,11 @@ bool AllDigits(const std::string &s)
 
 } // namespace
 
+bool IsSrtLine(const std::string &url)
+{
+	return StartsWithNoCase(Trim(url), kSrtScheme);
+}
+
 bool ParseTarget(const std::string &server_url, const std::string &stream_key, Target &out, std::string &error)
 {
 	out = Target{};
@@ -56,13 +61,12 @@ bool ParseTarget(const std::string &server_url, const std::string &stream_key, T
 		return false;
 	}
 
-	const std::string scheme = "rtmpsrt://";
-	if (!StartsWithNoCase(url, scheme)) {
+	if (!StartsWithNoCase(url, kSrtScheme)) {
 		error = "仅支持 rtmpsrt:// 线路（B站私有 RTMP over SRT）；普通 rtmp:// 请用 OBS 原生推流";
 		return false;
 	}
 
-	const size_t host_begin = scheme.size();
+	const size_t host_begin = std::char_traits<char>::length(kSrtScheme);
 	const size_t slash = url.find('/', host_begin);
 	if (slash == std::string::npos) {
 		error = "地址缺少应用路径（应形如 rtmpsrt://host/live-bvc/）";
@@ -121,43 +125,46 @@ bool ParseTarget(const std::string &server_url, const std::string &stream_key, T
 		port = static_cast<uint16_t>(p);
 	}
 
-	// 路径：app = 第一段（去掉尾部 '/'）；查询串可作为推流码的回退来源。
-	std::string path = url.substr(slash + 1);
-	std::string query;
-	const size_t qmark = path.find('?');
-	if (qmark != std::string::npos) {
-		query = path.substr(qmark); // 含 '?'
-		path = path.substr(0, qmark);
-	}
-
-	const size_t app_end = path.find('/');
-	std::string app = path.substr(0, app_end);
-	while (!app.empty() && app.back() == '/')
+	// librtmp(parseurl.c) 不解析 '?'：app = 第一个 '/' 之后的全部（**含查询串**），
+	// 只在结尾是 '/' 时裁掉一个；tcUrl = URL 起始至 app 末尾（同样含查询串，端口不补写）。
+	// 口径出处 = E-25 §2（B站 fork 用的就是 OBS vendored librtmp 这段逻辑）。
+	std::string rest = url.substr(slash + 1);
+	std::string app = rest;
+	if (!app.empty() && app.back() == '/')
 		app.pop_back();
 	if (app.empty()) {
 		error = "地址缺少应用名（应形如 rtmpsrt://host/live-bvc/）";
 		return false;
 	}
 
+	// 查询串（含 '?'）：推流码为空时的回退来源，以及「地址已带参数」的判定。
+	std::string query;
+	const size_t qmark = rest.find('?');
+	if (qmark != std::string::npos)
+		query = rest.substr(qmark);
+
+	// publish 名 = 推流码原文（E-25 §3：librtmp 只做 slist/%XX/扩展名三类清洗，B站 key 都不触发）。
+	// 地址里带查询串 + 另填报流码是官方的正常形态（E-24 §6：鉴权参数在 URL 里，key 另有其值），
+	// 所以两者可以同时存在，不报错。
 	std::string stream = key;
 	if (stream.empty()) {
 		if (query.empty()) {
 			error = "缺少推流码（线路条目里的 code，形如 ?streamname=…&key=…）";
 			return false;
 		}
+		// 推流码留空但地址自带查询串时，退化为用查询串当 publish 名（官方在此形态下会发空名，
+		// 未见服务端接受过；这里取「至少能试一次」的口径，已在 E-25 §3 标注为实现扩展）。
 		stream = query;
-	} else if (!query.empty()) {
-		error = "地址已带查询串，同时又填了推流码；请只保留一种写法";
-		return false;
 	}
 
 	out.server_url = url;
 	out.host = host;
 	out.port = port;
 	out.app = app;
-	out.stream = stream;
-	// tcUrl = 原 URL 截到 app 末尾（不含尾部 '/'，不含查询串），与 librtmp 截断口径一致。
+	// tcUrl = 原 URL 起始至 app 末尾（E-25 §2）：等价于「裁掉结尾那个 '/' 的完整 URL」，
+	// 端口按 URL 原样（没写就不补 :1935）。app 从 slash+1 起算，故长度 = slash + 1 + app.size()。
 	out.tc_url = url.substr(0, slash + 1 + app.size());
+	out.stream = stream;
 	return true;
 }
 

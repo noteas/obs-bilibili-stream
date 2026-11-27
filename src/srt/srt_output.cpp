@@ -33,7 +33,6 @@ struct SrtOutput {
 	std::deque<encoder_packet *> queue;
 
 	std::thread worker;
-	std::thread reader;
 
 	std::atomic<bool> stopping{false};
 	std::atomic<bool> failed{false};
@@ -41,13 +40,14 @@ struct SrtOutput {
 	std::atomic<uint64_t> total_bytes{0};
 	std::atomic<int> dropped_frames{0};
 	std::atomic<int> connect_ms{0};
-	std::atomic<int> pending_max_bandwidth{0};
 
+	// 设置项：UI 线程在 output_update 里写，worker 线程只在开播/重连的开头读一次快照，
+	// 运行中的改动（带宽除外）到下次开播才生效。bind_ip 是 std::string，必须上锁读写。
+	std::mutex settings_mutex;
 	int max_bandwidth = 0;
 	int recv_timeout_sec = 0;
 	std::string bind_ip;
-
-	std::string fail_reason;
+	std::atomic<int> pending_max_bandwidth{0};
 
 	// 时间戳（仅发送线程访问）
 	int64_t dts_offset_us = 0;
@@ -115,9 +115,7 @@ bool SendHeaders(SrtOutput *ctx, RtmpClient &client, std::string &error)
 	if (!ok)
 		return false;
 
-	FlvTag metadata;
-	if (MakeMetadataTag(ctx->output, metadata) && !client.SendTag(metadata, error))
-		return false;
+	// 不发 onMetaData：官方只在 HDR 分支发 metadata，普通 H.264/AAC 只有序列头 + 媒体 tag（E-25 §6）。
 	return true;
 }
 
@@ -156,9 +154,10 @@ bool SendQueuedPacket(SrtOutput *ctx, RtmpClient &client, encoder_packet *packet
 
 void MarkFailed(SrtOutput *ctx, const std::string &message)
 {
+	// 原因必须写进 OBS 的 last error，否则 OBS 的「停止原因」只会显示通用的 disconnected。
+	SetLastError(ctx->output, message);
 	if (ctx->failed.exchange(true))
 		return;
-	ctx->fail_reason = message;
 	ctx->stopping = true;
 	ctx->cv.notify_all();
 }
@@ -197,9 +196,15 @@ void WorkerMain(SrtOutput *ctx)
 		}
 	}
 
-	target.max_bandwidth = ctx->max_bandwidth;
-	target.recv_timeout_sec = ctx->recv_timeout_sec;
-	target.bind_ip = ctx->bind_ip;
+	// 设置快照（ParseTarget 会重置 target，所以必须在它之后）：UI 线程随时可能 update()，
+	// 见 SrtOutput::settings_mutex。
+	{
+		std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+		ctx->pending_max_bandwidth = 0;
+		target.max_bandwidth = ctx->max_bandwidth;
+		target.recv_timeout_sec = ctx->recv_timeout_sec;
+		target.bind_ip = ctx->bind_ip;
+	}
 
 	SrtTransport transport(target);
 	std::string error;
@@ -224,6 +229,7 @@ void WorkerMain(SrtOutput *ctx)
 	if (!SendHeaders(ctx, client, error)) {
 		MarkFailed(ctx, error);
 		obs_output_signal_stop(ctx->output, OBS_OUTPUT_CONNECT_FAILED);
+		client.SendTeardown();
 		transport.Close();
 		return;
 	}
@@ -231,12 +237,15 @@ void WorkerMain(SrtOutput *ctx)
 	if (!obs_output_begin_data_capture(ctx->output, 0)) {
 		MarkFailed(ctx, "启动编码器数据捕获失败");
 		obs_output_signal_stop(ctx->output, OBS_OUTPUT_ERROR);
+		client.SendTeardown();
 		transport.Close();
 		return;
 	}
 	ctx->capture_started = true;
 
-	ctx->reader = std::thread(ReaderMain, ctx, &client);
+	// 收线程归本函数所有、在这里 join；output_stop/destroy 只 join worker，
+	// 避免出现两个线程对同一个 std::thread 对象 join/detach 的竞争。
+	std::thread reader(ReaderMain, ctx, &client);
 
 	while (!ctx->stopping) {
 		const int new_maxbw = ctx->pending_max_bandwidth.exchange(0);
@@ -275,8 +284,10 @@ void WorkerMain(SrtOutput *ctx)
 
 	ctx->stopping = true;
 	ctx->cv.notify_all();
-	if (ctx->reader.joinable())
-		ctx->reader.join();
+	if (reader.joinable())
+		reader.join();
+	// librtmp 的顺序：RTMP_Close() 里先 FCUnpublish/deleteStream，再关 socket（E-25 §5）。
+	client.SendTeardown();
 	transport.Close();
 
 	if (ctx->failed) {
@@ -319,8 +330,6 @@ void output_destroy(void *data)
 	ctx->cv.notify_all();
 	if (ctx->worker.joinable())
 		ctx->worker.join();
-	if (ctx->reader.joinable())
-		ctx->reader.join();
 
 	DrainQueue(ctx);
 	delete ctx;
@@ -407,10 +416,9 @@ void output_stop(void *data, uint64_t /*ts*/)
 
 	ctx->stopping = true;
 	ctx->cv.notify_all();
+	// worker 自己负责 join 它的收线程并做 RTMP 收尾，这里只等 worker。
 	if (ctx->worker.joinable())
 		ctx->worker.join();
-	if (ctx->reader.joinable())
-		ctx->reader.join();
 
 	if (ctx->capture_started) {
 		obs_output_end_data_capture(ctx->output);
@@ -452,11 +460,17 @@ void output_update(void *data, obs_data_t *settings)
 	if (!ctx || !settings)
 		return;
 
-	ctx->max_bandwidth = static_cast<int>(obs_data_get_int(settings, "srt_max_bandwidth"));
-	ctx->recv_timeout_sec = static_cast<int>(obs_data_get_int(settings, "srt_recv_timeout_sec"));
+	const int maxbw = static_cast<int>(obs_data_get_int(settings, "srt_max_bandwidth"));
+	const int recv_timeout = static_cast<int>(obs_data_get_int(settings, "srt_recv_timeout_sec"));
 	const char *bind = obs_data_get_string(settings, "bind_ip");
+
+	std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+	ctx->max_bandwidth = maxbw;
+	ctx->recv_timeout_sec = recv_timeout;
 	ctx->bind_ip = bind ? bind : "";
-	ctx->pending_max_bandwidth = ctx->max_bandwidth;
+	// 带宽能在线生效（SRTO_MAXBW 支持运行中改）；接收超时与绑定地址是连接期参数，
+	// 下次开播才生效。
+	ctx->pending_max_bandwidth = maxbw;
 }
 
 void output_get_defaults(obs_data_t *settings)
@@ -469,10 +483,11 @@ void output_get_defaults(obs_data_t *settings)
 obs_properties_t *output_get_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
-	obs_properties_add_int(props, "srt_max_bandwidth", "SRT 最大带宽（B/s，0=自动 2 MiB/s）", 0,
+	obs_properties_add_int(props, "srt_max_bandwidth", "SRT 最大带宽（B/s，0=官方默认 2 MiB/s）", 0,
 			       1000000000, 1000);
-	obs_properties_add_int(props, "srt_recv_timeout_sec", "SRT 接收超时（秒，0=默认）", 0, 60, 1);
-	obs_properties_add_text(props, "bind_ip", "绑定本地 IP（default=不绑定）", OBS_TEXT_DEFAULT);
+	obs_properties_add_int(props, "srt_recv_timeout_sec", "SRT 接收超时（秒，0=默认 3；取值 3-60，下次开播生效）",
+			       0, 60, 1);
+	obs_properties_add_text(props, "bind_ip", "绑定本地 IP（default=不绑定，下次开播生效）", OBS_TEXT_DEFAULT);
 	return props;
 }
 

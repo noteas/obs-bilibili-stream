@@ -16,16 +16,23 @@
 namespace Srt {
 
 // 最小 RTMP 发布端（只做 publish，不做 play/鉴权/加密）。
-// 协议行为按官方 bvc-srt-stream.dll = OBS rtmp-stream + librtmp fork（E-24）：
-// 简单握手 → connect → releaseStream/FCPublish/createStream → publish，
-// 之后把 FLV tag 作为 RTMP 消息（chunk stream 4）发送；入站消息处理
-// Set Chunk Size / Ping / Window Ack。
+// 协议行为 = 官方 bvc-srt-stream.dll，而它就是 OBS rtmp-stream + OBS vendored librtmp 的 fork
+// （E-24），所以字段与时序一律对齐 OBS 32.2 的 librtmp（逐条出处见 E-25）：
+//   简单握手 → Set Chunk Size(4096) → connect(app/type=nonprivate/flashVer/swfUrl=tcUrl/tcUrl)
+//   → releaseStream → FCPublish → createStream → publish(playpath, "live")
+//   → 媒体 FLV tag（chunk stream 4）→ 停播 FCUnpublish → deleteStream → 关 socket。
+// 入站处理 Set Chunk Size / Ping / Window Ack；不发 Window Ack Size、Set Peer Bandwidth、主动 Ping
+// （librtmp 里这三类只出现在入站分支，E-25 §4）。
 class RtmpClient {
 public:
 	RtmpClient(ByteStream &stream, const Target &target);
 
 	bool HandshakeAndPublish(std::string &error);
 	bool SendTag(const FlvTag &tag, std::string &error);
+
+	// 停播收尾：按 librtmp `RTMP_Close()` 的同序发 FCUnpublish + deleteStream（E-25 §5），
+	// 不等响应、写失败也忽略；调用方随后关闭字节流。createStream 之前（无 stream id）不发。
+	void SendTeardown();
 
 	// 读一轮入站数据：1=处理了一条消息，0=暂时无数据，-1=连接错误。
 	int PollIncoming(std::string &error);
@@ -63,7 +70,8 @@ private:
 
 	uint32_t m_out_chunk_size = 4096;
 	uint32_t m_in_chunk_size = 128;
-	uint32_t m_stream_id = 1;
+	uint32_t m_stream_id = 0; // 0 = createStream 还没成功；非 0 = 服务端给的 stream id（0 按 1 处理）
+	bool m_teardown_sent = false;
 	double m_transaction = 0;
 
 	uint32_t m_window_ack_size = 0;
