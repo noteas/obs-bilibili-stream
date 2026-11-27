@@ -107,7 +107,7 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
         - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
         - SRT 线路(`protocol=srt`,地址为 `rtmpsrt://...`):插件在开播成功/打开控制台时会把私有 SRT 条目
           合并进 OBS 服务列表(无条件写:本次没有 rtmpsrt 线路时条目内为默认入口)。
-          服务选 **「Bilibili Live - SRT | 哔哩哔哩直播 - SRT」**,
+          服务选 **「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」**,
           服务器选本次的 `rtmpsrt://` 地址,推流码从控制台复制后手动填写(若设置窗口已打开,先关闭再打开以刷新列表)。OBS 会用本插件的私有 SRT 输出
           (RTMP over SRT,UDP 1935),而不是 OBS 原生 SRT(MPEG-TS,接不上)。详见契约 §4.6 / ADR-0007
     - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令、线路展示与服务目录合并,
@@ -120,7 +120,7 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 ## 注意事项
 
 - **私有 SRT 服务条目**：插件会在 OBS 的 `plugin_config/rtmp-services/services.json` 里合并一条
-  「Bilibili Live - SRT | 哔哩哔哩直播 - SRT」（协议 `bvc_srt`），这是 OBS 的服务目录数据文件，不是你的推流配置；
+  「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」（协议 `bvc_srt`），这是 OBS 的服务目录数据文件，不是你的推流配置；
   删除该文件即可恢复 OBS 原生服务列表。插件不写你的已选服务、编码器或输出配置。
 - **私有 SRT 输出限制（v1）**：只支持 H.264 视频 + AAC 音频；OBS 若使用 HEVC/AV1，请先在
   编码器设置里切到 H.264，否则输出会以「仅支持 H.264」拒绝启动。

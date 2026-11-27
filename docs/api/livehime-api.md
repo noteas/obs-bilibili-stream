@@ -657,7 +657,7 @@ OBS 上游**不认识** `rtmpsrt://`,但也不报错:
   B站私有 SRT = RTMP/FLV over SRT。**两者不互通**。
 - 同一 host:1935 同时接受 TCP RTMP,所以 OBS 降级可用;该入口不是 SRT-only。
 - 插件现状:RTMP 线路仍只展示,不驱动输出(ADR-0005);SRT 线路在用户于 OBS
-  「设置→直播」显式选择服务「Bilibili Live - SRT | 哔哩哔哩直播 - SRT」(插件无条件
+  「设置→直播」显式选择服务「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」(插件无条件
   合并进 rtmp-services 服务目录,ADR-0007)后,由本插件的 `bvc_srt_output` 推
   RTMP-over-SRT;服务器与推流码均由用户手动选择/粘贴,插件不写用户推流配置。
 - 若要做私有 SRT 输出:需自实现 RTMP-over-SRT(ADR-0006/U-SRT),不能复用 OBS 原生 SRT,
@@ -698,7 +698,7 @@ RCVTIMEO=clamp(srt_recv_timeout_sec,3,60)*1000ms(key 缺省为 0/阻塞)
 - **不接管「自定义」**:OBS 的 `rtmp_custom_get_protocol()` 对未知 scheme 一律返回 `"RTMP"`,
   前端固定选 `rtmp_output`;插件无法拦截。
 - 插件注册 `bvc_srt_output`(`protocols="bvc_srt"`),并把
-  `"Bilibili Live - SRT | 哔哩哔哩直播 - SRT"` 条目合并进 rtmp-services 的**用户级**
+  `"Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT"` 条目合并进 rtmp-services 的**用户级**
   `plugin_config/rtmp-services/services.json`(OBS 原生表 + 本条目)。用户在
   「设置→直播」选中它后,`GetStreamOutputType` 走第三方协议分支 → `bvc_srt_output`。
 - H.264 + AAC 走官方 track0 legacy tag 口径(E-25)。libsrt 1.5.x 适配:单次

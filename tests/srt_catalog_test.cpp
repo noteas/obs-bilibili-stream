@@ -32,6 +32,8 @@ std::string SyntheticBase()
     { "name": "A", "server": "rtmp://a", "common": true },
     { "name": "B站私有 SRT", "protocol": "bvc_srt",
       "servers": [ { "name": "旧", "url": "rtmpsrt://x/y/" } ] },
+    { "name": "Bilibili Live - SRT | 哔哩哔哩直播 - SRT", "protocol": "bvc_srt",
+      "servers": [ { "name": "旧i18n", "url": "rtmpsrt://old/i18n/" } ] },
     { "name": "B", "server": "rtmp://b" }
   ],
   "future_key": { "kept": true }
@@ -87,7 +89,7 @@ void CheckMergeAgainst(const std::string &base, int base_service_count, const ch
 	for (const auto &s : base_json["services"].array_items()) {
 		const std::string name = s["name"].string_value();
 		if (name == Srt::kServiceEntryName || name == "B站私有 SRT" || name == "bilibili_srt" ||
-		    name == "bili_srt")
+		    name == "bili_srt" || name == "Bilibili Live - SRT | 哔哩哔哩直播 - SRT")
 			++stale;
 	}
 	CHECK(j["services"].array_items().size() == static_cast<size_t>(base_service_count - stale + 1),
@@ -159,7 +161,7 @@ int main()
 		const auto real_json = json11::Json::parse(real, parse_error);
 		if (real_json.is_object())
 			CheckMergeAgainst(real, static_cast<int>(real_json["services"].array_items().size()),
-					"系统 services.json");
+					  "系统 services.json");
 		break;
 	}
 

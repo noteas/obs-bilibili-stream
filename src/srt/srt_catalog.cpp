@@ -20,7 +20,8 @@ constexpr const char *kDefaultServerUrl = "rtmpsrt://live-push.bilivideo.com/liv
 constexpr int kFallbackFormatVersion = 5;
 // 早期版本写过的条目名。OBS 按 `name` 认条目，不清掉的话下拉里会叠出重复条目，
 // 所以合并时一并替换；同一份名单也用作 alt_names（OBS 的搜索别名）。
-constexpr const char *kLegacyEntryNames[] = {"B站私有 SRT", "bilibili_srt", "bili_srt"};
+constexpr const char *kLegacyEntryNames[] = {"B站私有 SRT", "bilibili_srt", "bili_srt",
+					     "Bilibili Live - SRT | 哔哩哔哩直播 - SRT"};
 
 std::string ReadFile(const std::string &path)
 {
