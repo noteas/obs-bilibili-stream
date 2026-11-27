@@ -690,6 +690,18 @@ RCVTIMEO=clamp(srt_recv_timeout_sec,3,60)*1000ms(key 缺省为 0/阻塞)
   实现时照抄该组合才能与官方行为一致。
 - 详见 E-24(`re/evidence/24-bvc-srt-private-protocol.md`)。
 
+### 本插件实现(ADR-0007)
+
+- **不接管「自定义」**:OBS 的 `rtmp_custom_get_protocol()` 对未知 scheme 一律返回 `"RTMP"`,
+  前端固定选 `rtmp_output`;插件无法拦截。
+- 插件注册 `bvc_srt_output`(`protocols="bvc_srt"`),并把
+  `"Bilibili Live - SRT | 哔哩哔哩直播 - SRT"` 条目合并进 rtmp-services 的**用户级**
+  `plugin_config/rtmp-services/services.json`(OBS 原生表 + 本条目)。用户在
+  「设置→直播」选中它后,`GetStreamOutputType` 走第三方协议分支 → `bvc_srt_output`。
+- v1 只支持 H.264 + AAC(官方 track0 legacy tag 口径)。libsrt 1.5.x 适配:单次
+  `srt_send` ≤1316B、`srt_recv` 先收进 ≥1316B 缓冲再分发(LiveCC 限制)、
+  `SRTO_LINGER` 用 `struct linger`。
+
 ### 证据
 
 E-23(`re/evidence/23-srt-rtmpsrt.md`)、E-24(`re/evidence/24-bvc-srt-private-protocol.md`);

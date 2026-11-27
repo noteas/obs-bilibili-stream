@@ -97,8 +97,14 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
     - Click **开播** (Go live) in the console; **all lines** (primary/backup, protocol/provider, address, stream key) appear in the console and can be copied.
     - In OBS, go to **Settings** → **Stream**, choose the service that matches the line, and paste:
         - RTMP line: Service **Custom**, Server = push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-        - SRT line: Service **SRT**, fill the SRT fields OBS provides
-    - Click **Start Streaming** in OBS. The plugin only handles go-live signalling and line display; it does not modify OBS configuration, and starting the actual stream is always your call (ADR-0005).
+        - SRT line (`rtmpsrt://`): after going live the plugin adds a **Bilibili Live - SRT** entry
+          (protocol `bvc_srt`) to OBS's rtmp-services catalog. Choose it as the Service, pick the
+          matching `rtmpsrt://` server, and paste the stream key from the console. OBS then uses this
+          plugin's private SRT output (RTMP over SRT, UDP 1935), not OBS's native MPEG-TS SRT.
+          Close/reopen the Settings dialog to refresh the service list.
+    - Click **Start Streaming** in OBS. The plugin only handles go-live signalling, line display and
+      the service catalog entry; it does not modify your selected service/encoders/outputs, and
+      starting the actual stream is always your call (ADR-0005/0007).
 
 5. **Stop**:
     - Stop streaming in OBS first, then click **停播** (End live) in the console to close the Bilibili live room.
@@ -115,6 +121,8 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 
 - OBS Studio 30.0 or higher
 - Windows / Ubuntu 24.04 or higher
+- Building the private SRT output requires libsrt headers (`libsrt-gnutls-dev` or
+  `libsrt-openssl-dev`); without them CMake disables that feature and the rest still builds.
 
 ## Contributing
 

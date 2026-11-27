@@ -105,8 +105,12 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
     - 控制台点击 **开播**;成功后**全部线路**(主/备、协议/provider、地址、推流码)显示在控制台,均可选中复制。
     - 在 OBS 中,打开 **设置** → **推流**,按线路协议选择服务并粘贴地址/推流码:
         - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-        - SRT 线路(`protocol=srt`,地址为 `rtmpsrt://...`):B站私有封装是 **RTMP over SRT**,OBS 原生 SRT(MPEG-TS)接不上;OBS 会把这个未知 scheme 静默降级为 `rtmp://host:1935`。因此按 RTMP 填写即可,`rtmpsrt://` 原样填入也能用(实际走 TCP RTMP,不启用 SRT)。详见契约 §4.6 / ADR-0006
-    - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令与线路展示,不改写 OBS 配置,推流按钮永远由你在 OBS 点击(ADR-0005)。
+        - SRT 线路(`protocol=srt`,地址为 `rtmpsrt://...`):开播后插件会把本次线路写进 OBS 服务列表,
+          服务选 **「Bilibili Live - SRT | 哔哩哔哩直播 - SRT」**(显示名「B站私有 SRT」),
+          服务器选对应 `rtmpsrt://` 地址,推流码从控制台复制(若设置窗口已打开,先关闭再打开以刷新列表)。OBS 会用本插件的私有 SRT 输出
+          (RTMP over SRT,UDP 1935),而不是 OBS 原生 SRT(MPEG-TS,接不上)。详见契约 §4.6 / ADR-0007
+    - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令、线路展示与服务目录合并,
+      不改写你的已选服务/编码/输出配置,推流按钮永远由你在 OBS 点击(ADR-0005)。
 
 5. **停播**:
     - 先在 OBS 停止推流,再在控制台点击 **停播** 关闭 B站直播间。
@@ -114,6 +118,11 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 
 ## 注意事项
 
+- **私有 SRT 服务条目**：插件会在 OBS 的 `plugin_config/rtmp-services/services.json` 里合并一条
+  「B站私有 SRT」（协议 `bvc_srt`），这是 OBS 的服务目录数据文件，不是你的推流配置；
+  删除该文件即可恢复 OBS 原生服务列表。插件不写你的已选服务、编码器或输出配置。
+- **私有 SRT 输出限制（v1）**：只支持 H.264 视频 + AAC 音频；OBS 若使用 HEVC/AV1，请先在
+  编码器设置里切到 H.264，否则输出会以「仅支持 H.264」拒绝启动。
 - **日志查看**：如果遇到问题，检查 OBS 日志文件：
   - Windows: `C:\Users\<YourUser>\AppData\Roaming\obs-studio\logs`
   - macOS: `~/Library/Logs/obs-studio/`
@@ -123,6 +132,8 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 
 - OBS Studio 30.0 或更高版本
 - Windows / Ubuntu 24.04 或更高版本
+- 构建私有 SRT 输出需要 libsrt 开发包：Debian/Ubuntu `libsrt-gnutls-dev`
+  （或 `libsrt-openssl-dev`）。未找到时 CMake 会关闭该功能，插件其余部分仍可正常构建/使用。
 
 ## 贡献
 
