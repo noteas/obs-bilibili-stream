@@ -43,9 +43,19 @@ static const char *const PERSIST_COOKIE_KEYS[] = {"SESSDATA", "bili_jct", "DedeU
 // response merges, read from the UI thread by the persistence plumbing)
 // ---------------------------------------------------------------------------
 namespace {
-std::mutex jar_mutex;
-std::map<std::string, std::string> cookie_jar;
-std::function<void(const std::string &)> cookie_change_callback;
+// 故意泄漏到堆、永不释放：这些状态被 detach 的 worker 线程读写。OBS 关闭路径
+// 刻意 detach 不 join（见 cleanup()），进程静态析构时可能仍有任务在跑——放在
+// 静态存储期的 mutex/map/function 会在 worker 脚下析构，属未定义行为。堆块
+// 永不析构，代价只有几 KB。
+struct CookieJarState {
+	std::mutex mutex;
+	std::map<std::string, std::string> jar;
+	std::function<void(const std::string &)> change_callback;
+};
+static CookieJarState &g_jar = *new CookieJarState;
+std::mutex &jar_mutex = g_jar.mutex;
+std::map<std::string, std::string> &cookie_jar = g_jar.jar;
+std::function<void(const std::string &)> &cookie_change_callback = g_jar.change_callback;
 
 bool is_persistent_key(const std::string &key)
 {
@@ -255,11 +265,25 @@ static void absorb_response_cookies(const std::string &captured)
 // also serializes the libcurl calls made by HttpClient::get()/post().
 using AsyncJob = std::function<void()>;
 
-static std::queue<AsyncJob> async_queue;
-static std::mutex queue_mutex;
-static std::condition_variable queue_cv;
-static bool stop_worker = false;
-static std::thread worker_thread;
+namespace {
+// 同 cookie jar 的理由：worker 线程可能在进程析构阶段仍在跑任务，它用的
+// queue/mutex/condition_variable 放在故意泄漏的堆块里，永不析构。std::thread
+// 同样永不析构——joinable 线程的析构会直接 std::terminate，因此 detach（见
+// cleanup()）就是它的唯一出口，不需要额外的退出守卫。
+struct WorkerState {
+	std::queue<AsyncJob> queue;
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool stop = false;
+	std::thread thread;
+};
+static WorkerState &g_worker = *new WorkerState;
+std::queue<AsyncJob> &async_queue = g_worker.queue;
+std::mutex &queue_mutex = g_worker.mutex;
+std::condition_variable &queue_cv = g_worker.cv;
+bool &stop_worker = g_worker.stop;
+std::thread &worker_thread = g_worker.thread;
+} // namespace
 
 static bool workerStopping()
 {
