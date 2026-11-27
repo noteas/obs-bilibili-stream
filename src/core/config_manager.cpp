@@ -1,4 +1,4 @@
-#include "core/config_manager.hpp"
+#include "config_manager.hpp"
 #include <obs-module.h>
 #include <filesystem>
 
@@ -17,6 +17,9 @@ char *ConfigManager::getConfigPath()
 
 void ConfigManager::load()
 {
+	// 默认构造 = 全部字段为「未知/空」:没有任何占位值。旧版本的占位默认
+	// (room_id="12345"/csrf_token="your_csrf_token"/title="我的直播")会让未登录的
+	// 控制台显示一个不存在的房间、把「我的直播」当现标题提交——已彻底移除。
 	m_config = Bili::Config();
 
 	char *configFile = getConfigPath();
@@ -34,18 +37,16 @@ void ConfigManager::load()
 	m_config.mid = obs_data_get_string(settings, "mid");
 	m_config.cookies = obs_data_get_string(settings, "cookies");
 	m_config.title = obs_data_get_string(settings, "title");
-	m_config.rtmp_addr = obs_data_get_string(settings, "rtmp_addr");
-	m_config.rtmp_code = obs_data_get_string(settings, "rtmp_code");
 	m_config.part_id = static_cast<int>(obs_data_get_int(settings, "part_id"));
 	m_config.area_id = static_cast<int>(obs_data_get_int(settings, "area_id"));
-	m_config.bitrate_kbps = static_cast<int>(obs_data_get_int(settings, "bitrate_kbps"));
-	// 线路表(ADR-0005):JSON 数组持久化,便于停播后仍可抄地址。
+	m_config.dock_introduced = obs_data_get_bool(settings, "dock_introduced");
+	// 线路表(ADR-0005):JSON 数组持久化,OBS 重启后进行中的场次仍可抄地址/推流码。
 	{
 		m_config.stream_targets.clear();
 		std::string err;
 		json11::Json arr = json11::Json::parse(obs_data_get_string(settings, "stream_targets"), err);
 		for (const auto &item : arr.array_items()) {
-			Bili::Config::StreamTarget t;
+			Bili::StreamTarget t;
 			t.protocol = item["protocol"].string_value();
 			t.provider = item["provider"].string_value();
 			t.addr = item["addr"].string_value();
@@ -57,13 +58,6 @@ void ConfigManager::load()
 	}
 	obs_data_release(settings);
 	bfree(configFile);
-
-	if (m_config.room_id.empty())
-		m_config.room_id = "12345";
-	if (m_config.csrf_token.empty())
-		m_config.csrf_token = "your_csrf_token";
-	if (m_config.title.empty())
-		m_config.title = "我的直播";
 }
 
 void ConfigManager::save()
@@ -78,11 +72,9 @@ void ConfigManager::save()
 	obs_data_set_string(settings, "cookies", m_config.cookies.c_str());
 	obs_data_set_string(settings, "mid", m_config.mid.c_str());
 	obs_data_set_string(settings, "title", m_config.title.c_str());
-	obs_data_set_string(settings, "rtmp_addr", m_config.rtmp_addr.c_str());
-	obs_data_set_string(settings, "rtmp_code", m_config.rtmp_code.c_str());
 	obs_data_set_int(settings, "part_id", m_config.part_id);
 	obs_data_set_int(settings, "area_id", m_config.area_id);
-	obs_data_set_int(settings, "bitrate_kbps", m_config.bitrate_kbps);
+	obs_data_set_bool(settings, "dock_introduced", m_config.dock_introduced);
 	{
 		std::vector<json11::Json> items;
 		for (const auto &t : m_config.stream_targets) {
@@ -95,17 +87,28 @@ void ConfigManager::save()
 		const std::string json = json11::Json(items).dump();
 		obs_data_set_string(settings, "stream_targets", json.c_str());
 	}
+	const std::filesystem::path configPath = std::filesystem::u8path(configFile);
+	bfree(configFile);
 	std::error_code ec;
 	try {
-		auto configPath = std::filesystem::u8path(configFile);
 		std::filesystem::create_directories(configPath.parent_path(), ec);
 	} catch (const std::exception &e) {
 		blog(LOG_WARNING, "[obs-bilibili-stream] 创建配置目录失败: %s", e.what());
 	}
-	if (!obs_data_save_json(settings, configFile)) {
-		blog(LOG_WARNING, "[obs-bilibili-stream] 配置保存失败: %s", configFile);
+	// 原子写(临时文件 + 替换,与 OBS 自身保存 service.json 同款):config.json 里有完整
+	// 登录会话,崩溃/断电截断文件就等于被登出。旧版 obs_data_save_json 先截断再写。
+	if (!obs_data_save_json_safe(settings, configPath.u8string().c_str(), "tmp", nullptr)) {
+		blog(LOG_WARNING, "[obs-bilibili-stream] 配置保存失败: %s", configPath.u8string().c_str());
+		obs_data_release(settings);
+		return;
 	}
 	obs_data_release(settings);
-	bfree(configFile);
+#ifndef _WIN32
+	// config.json 里有完整的登录会话(SESSDATA/bili_jct)与推流码:多用户机器上不能让
+	// 其他账号读到。obs_data_save_json 用默认 umask 创建文件,这里收紧到属主读写。
+	std::filesystem::permissions(configPath, std::filesystem::perms::owner_read |
+						 std::filesystem::perms::owner_write,
+				     std::filesystem::perm_options::replace, ec);
+#endif
 }
 } // namespace Core

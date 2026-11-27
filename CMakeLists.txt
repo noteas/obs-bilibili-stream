@@ -30,6 +30,7 @@ add_library(
   ${CMAKE_PROJECT_NAME}
   MODULE
   src/bilibili_api.hpp
+  src/bili_parsers.hpp
   src/http_client.hpp
   src/plugin_utils.hpp
   src/md5.hpp
@@ -37,10 +38,12 @@ add_library(
   src/json11/json11.hpp
   src/core/config_manager.hpp
   src/core/qr_generator.hpp
+  src/core/session.hpp
   src/core/platform_util.hpp
   src/ui/console.hpp
   src/plugin-main.cpp
   src/bilibili_api.cpp
+  src/bili_parsers.cpp
   src/http_client.cpp
   src/plugin_utils.cpp
   src/md5.cpp
@@ -49,6 +52,7 @@ add_library(
   src/core/config_manager.cpp
   src/core/qr_generator.cpp
   src/core/platform_util.cpp
+  src/core/session.cpp
   src/ui/console.cpp
   src/srt/srt_catalog.hpp
   src/srt/srt_catalog.cpp

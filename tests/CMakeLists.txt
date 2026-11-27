@@ -18,3 +18,16 @@ add_executable(
 target_include_directories(srt_catalog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(srt_catalog_test PRIVATE OBS::libobs Threads::Threads)
 add_test(NAME srt_catalog_test COMMAND srt_catalog_test)
+
+# 3) 端点响应解析(bili_parsers.cpp,纯函数,只依赖 json11):nav 三态、room/GetInfo、
+# startLive 解析序(protocols[].code / live_key 回落 / rtmp.new_link 回落 / notice /
+# v_voucher / 人脸 / 60043)。fixtures = 契约钉死的形状。
+add_executable(
+  bili_parsers_test
+  bili_parsers_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/bili_parsers.cpp
+  ${CMAKE_SOURCE_DIR}/src/json11/json11.cpp
+)
+target_include_directories(bili_parsers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME bili_parsers_test COMMAND bili_parsers_test)
+

@@ -1,5 +1,6 @@
 #include "core/qr_generator.hpp"
 #include "qrcodegen/qrcodegen.hpp"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -41,7 +42,9 @@ bool QrGenerator::writeSvgFile(const std::string &path, const std::string &data)
 		return false;
 	}
 
-	std::ofstream file(path, std::ios::binary | std::ios::trunc);
+	// path 是 UTF-8(obs_module_config_path):MSVC 的窄串构造按 ANSI 代码页解码,
+	// 中文用户名目录会打不开文件,必须经 u8path。
+	std::ofstream file(std::filesystem::u8path(path), std::ios::binary | std::ios::trunc);
 	if (!file.is_open())
 		return false;
 	file << svg;
