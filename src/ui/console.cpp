@@ -455,8 +455,9 @@ void do_recover_stream()
 			cfg.stream_targets.push_back(
 				Bili::Config::StreamTarget{"rtmp", "", result->addr, result->code, false});
 			g_config.save();
-			// 恢复路径只产出 rtmp 线路，这里调用是安全的：没有 rtmpsrt:// 线路时
-			// refresh_srt_catalog() 不写任何东西（不会用默认入口盖掉上次的真实线路）。
+			// 恢复路径只产出 rtmp 线路：refresh_srt_catalog() 无 rtmpsrt:// 线路时
+			// 条目回退为默认占位入口（ADR-0007 无条件写 = 能力声明，上次的真实线路
+			// 随本次响应没有 SRT 线路而失效，盖回占位是预期行为）。
 			refresh_srt_catalog();
 			g_session_in_progress = false;
 			set_status(LEVEL_INFO, Utils::Text("Recover.Success", result->source.c_str()));
