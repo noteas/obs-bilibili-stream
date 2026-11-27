@@ -105,7 +105,7 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
     - 控制台点击 **开播**;成功后**全部线路**(主/备、协议/provider、地址、推流码)显示在控制台,均可选中复制。
     - 在 OBS 中,打开 **设置** → **推流**,按线路协议选择服务并粘贴地址/推流码:
         - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
-        - SRT 线路:服务选 SRT,按 OBS 的 SRT 字段填入
+        - SRT 线路(`protocol=srt`,地址为 `rtmpsrt://...`):B站私有封装是 **RTMP over SRT**,OBS 原生 SRT(MPEG-TS)接不上;OBS 会把这个未知 scheme 静默降级为 `rtmp://host:1935`。因此按 RTMP 填写即可,`rtmpsrt://` 原样填入也能用(实际走 TCP RTMP,不启用 SRT)。详见契约 §4.6 / ADR-0006
     - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令与线路展示,不改写 OBS 配置,推流按钮永远由你在 OBS 点击(ADR-0005)。
 
 5. **停播**:

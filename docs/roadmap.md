@@ -10,6 +10,8 @@
 | 0002 | 全套原生 LiveHime 画像，无指纹开关 |
 | 0003 | UI 全 OBS 原生渲染（obs_properties 控制台），插件不链接 Qt |
 | 0004 | 备流/协议/恢复只展示线路，不驱动第二路推流（ADR-0005） |
+| 0005 | 线路全量展示，不写 OBS 配置 |
+| 0006 | SRT 线路只展示；私有 RTMP-over-SRT 输出先逆向 `bvc-srt-stream.dll`（U-SRT），不复用 OBS 原生 SRT |
 
 ## 里程碑(按依赖排序,一个分支一个里程碑,原子提交)
 
@@ -23,6 +25,7 @@
 | M2 | `milestone/m2-quality` | **前置已完成(2026-11-25,U-Q 钉死,用户确认新模型)**:GetQualityData/QualityCallback=线路质量探测/回执(非档位);码率口径=GetUpStreamVideoQualityConfig(推荐/默认+干预,管线例外 bitrate_intervention=1 sign 后);H265 读 can_enable、AV1 读 can_hard_encode。范围:拉取展示推荐码率+干预+编码能力(只读展示,插件不改写 OBS 配置,码率由用户在 OBS 中自行设置);无档位/无回执 | C4 | 完成(2026-11-25:三端点+控制台质量区落地,真机加载验证;干预/推荐值形状待账号实测) |
 | R3.0.2 | — | 清理死链路与残留:access_key 交换(`refresh_token→oauth2/refresh_token`,E-20 恒 -101)、探针(`backup_stream_type_probe`/`stream_biz_probe`/`client_traceid_probe`)、`recommend_protocol`/`recommend_ip` 透传、`use_legacy_endpoints` + 旧端点(`room_id_by_uid`/`Room/update`)、`rtmp_backup_*` 兼容副本;公共参数 `access_key` 保留键、恒发空值 | — | 完成(2026-11-27,3.0.2 Release) |
 | M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 全量展示(按 ADR-0005 改为线路展示,不做「切到备流」按钮) | — | 完成(2026-11-25:开播(含备流)→主/备线路全量入 `config.stream_targets` 并逐条展示;backup_stream_type/stream_biz 字面值已定(E-19:RequestStartLive 14 参 vcall 实锤 backup_stream_type=2/stream_biz="Paylive",教室房 "ClassRoom";U6 路由=槽 0x68 备流 builder);**备流被拒回退**——实网 70003 自动按普通开播重试并上抛原因;语义更正:备流=主备双通道(可同时推、主流失效备流生效),插件只展示备流通道数据;U6 闭合后已对齐(2026-11-26):备流请求默认恒注 backup_stream_type=2/stream_biz=Paylive(3.0.2 起固定官方字面量,探针已移除);复验记录:①恒注伴参后 70003→70002(伴参已达服务端,分配走得更深)②备流路径补注 src(get_stream_by_roomId.stream_line,checked 优先)待用户在场实测;③src=8 注入后仍 70002,body 与官方默认字面量指令级全等⇒排除 body;④access_key 假设经 E-20 定案弱化(web token 无桥,官方 web 登录大概率为空);⑤E-21 定位传输层具体嫌疑=插件自造的 client_traceid UUID(官方非空才注、原生 32-hex),已改默认不发+client_traceid_probe 探针,实网复验仍 70002;⑥**E-22 根因定案(2026-11-26,订正 E-19「官方恒带备流伴参」)**:官方开播分派器 F-180d5de60 按 upower_privilege_type(§3.10 GetVisibleMode)switch,仅 ==5("PRELIVE_UPOWER")走备流 builder,其余走标准 builder(不带备流参)⇒ 无资格账号官方从不发 backup_stream,70002=插件强发伴参的业务层正确拒绝(普通开播 protocols_backup:null 互证;libcurl 其余接口全成功 ⇒ 指纹出局)。仓库已修:单「开播」按钮自动判定(先 getVisibleMode 查资格,==5 才注 src+备流三参,≠5 按官方普通请求发送并提示无资格;「开播(含备流)」独立按钮已并入);待实网复验回值) |
+| M4 | `milestone/m4-srt-output` | 私有 SRT 输出（RTMP-over-SRT）：先逆向 `bvc-srt-stream.dll` 钉死 UDP 端口/SRT streamid/载荷（完整 RTMP vs 裸 FLV），再定形态（obs_output 插件 vs 本地 relay）；不改写 OBS 配置 | U-SRT | 未开始（阻塞 U-SRT；2026-11-27 固化 E-23/ADR-0006，OBS 侧 `rtmpsrt://` 已证为 TCP RTMP 降级） |
 
 ## 控制台字段清单(M0 验收口径,后续里程碑逐项激活)
 
@@ -42,7 +45,8 @@
 
 | U | 内容 | 卡哪个里程碑 |
 |---|---|---|
-| U1 | `protocols[].protocol` 取值集与 `protocols_backup[]` 的形状(`type` 已钉死=`"1"`+类型索引) | 已解除:不再做协议选择,线路全量展示(ADR-0005);实测取值 `bmtsrt,bmt,srt×3,rtmp×2` |
+| U1 | `protocols[].protocol` 取值集与 `protocols_backup[]` 的形状(`type` 已钉死=`"1"`+类型索引) | 已解除:不再做协议选择,线路全量展示(ADR-0005);实测取值 `bmtsrt,bmt,srt×3,rtmp×2`;2026-11-27 补 scheme 语义与官方输出分派(§4.6/E-23),剩 U-SRT |
+| U-SRT | `bvc-srt-stream.dll` 私有 SRT 封装:UDP 端口、SRT streamid 构造、载荷(完整 RTMP 握手 vs 裸 FLV tag)、`code` 鉴权位置、重连/统计 | 阻塞 M4。下一轮导入 `ghidra_full` 完整分析,按 E-23 §6 清单产出 E-24 |
 | U-Q | ~~GetQualityData/QualityCallback 字段~~ 已钉死:**线路质量探测/回执**(非码率档);视频码率正解=GetUpStreamVideoQualityConfig(§5.4,无档位列表);遗留 U-qs=streamName/key 取值构造 | M2 已按新模型完成(A0) |
 | U-R | ~~`get_stream_by_roomId` 响应字段~~ 已钉死:`data.rtmp.{addr,code}`+`stream_line[].{src,cdn_name,checked}`(解析器 F-18014cf60);`src`(整数)=startLive `src` 参数唯一来源,经 service 子对象 `vt[0xf8]` 透传(E-19) | M1b(已解除) |
 | U-L | login-v3 请求参数集(App OAuth 路线,本插件走 Web Cookie 路线,不阻塞) | — |
