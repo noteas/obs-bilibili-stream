@@ -1096,6 +1096,9 @@ void ConsoleOpenPanel()
 {
 	if (!g_source)
 		return;
+	// OBS 的 rtmp-services 会在启动时联网更新 services.json 并整表覆盖；用户打开
+	// 控制台时再合并一次，保证「B站私有 SRT」条目在 OBS 设置里可用。
+	refresh_srt_catalog();
 	// 草稿与已提交设置对齐(上次 OK/取消/异步刷新遗留的草稿不污染本次对话框:
 	// 二级列表条目与下拉选中都以草稿为锚,见 on_part_changed)。无已提交值时回
 	// 落到 config.json(= 属性表注入的默认值)。
