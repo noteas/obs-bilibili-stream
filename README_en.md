@@ -23,20 +23,15 @@ A plugin for OBS Studio that simplifies the streaming process on Bilibili platfo
     ```
 5.  **Launch OBS**: Restart OBS Studio, the plugin will load automatically.
 
-### Ubuntu/Debian
+### Ubuntu/Debian (user plugin directory zip)
 
-1.  **Download plugin**: Download the latest `.deb` package (e.g., `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.deb`) from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases).
-2.  **Install plugin**: Run the following command:
+1.  **Download plugin**: Download the latest user-plugin-directory zip from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases) (e.g. `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.zip`).
+2.  **Unzip to install**: extract into the per-user plugin directory so you get `bin/64bit/bilibili-stream-for-obs.so` and `data/locale/`:
     ```bash
-    sudo dpkg -i bilibili-stream-for-obs-*.deb
+    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
     ```
-3.  **Fix dependencies** (if needed):
-    ```bash
-    sudo apt-get install -f
-    ```
-4.  **Launch OBS**: Restart OBS Studio, the plugin will load automatically.
-
-The plugin will be installed to `/usr/lib/obs-plugins/` directory.
+3.  **Runtime library**: the private SRT output needs `libsrt1.5-gnutls` (Debian/Ubuntu: `sudo apt install libsrt1.5-gnutls`); the Qt6 used by the dock ships with OBS.
+4.  **Launch OBS**: restart OBS Studio; the plugin loads automatically.
 
 ### Flatpak (OBS Studio Flatpak)
 
@@ -80,37 +75,40 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 
 ## Usage
 
-> Since v2.2 all controls live in the **「B站直播控制台」** (Bilibili Stream Console) window, rendered natively by OBS (ADR-0003). The plugin no longer depends on Qt.
+> Since v3.2 there are two entry points showing the **same server state**: the **"Bilibili Live" dock** (status at a glance plus the everyday actions) and the **「B站直播控制台」** (Bilibili Live Console: title/area, recommended bitrate). On first load the dock appears in the right dock area; after that OBS remembers your layout. The plugin never starts streaming and never rewrites your OBS stream settings (ADR-0001/0005).
 
-1. **Open the console**: Start OBS, then go to menu **Tools → B站直播控制台**.
+1. **Dock**: menu **Docks → Bilibili Live**. It shows the sign-in state, room id/title/area, live session status (offline / live / rebroadcast / locked), whether OBS is streaming, the time of the last server check, and every stream line of the current session (server address and stream key, each with a **Copy** button). The state is reconciled with the server once a minute and right after OBS starts/stops streaming; if a check fails, the previous data is kept and the reason is shown.
 
 2. **Login to Bilibili**:
-    - Click **扫码登录** (QR login) in the console; the login QR code opens in your system browser (if no browser can be launched, the status line shows the URL to open manually).
-    - Scan with the Bilibili mobile app and confirm; the console status line updates to "已登录" (logged in) automatically.
-    - You can also use **Tools → B站扫码登录** directly, without opening the console first.
+    - Click **Sign in with QR code** (扫码登录) in the dock: the QR code is rendered right there — scan with the Bilibili mobile app and confirm (or open it in your browser). Expired codes are refreshed automatically; **Cancel sign-in** aborts at any time.
+    - On OBS versions without the Qt dock API (< 30.0.2) the QR code opens in the system browser instead; if no browser can be launched, the status line shows the URL.
 
-3. **Update Livestream Room Info**:
-    - In the console, fill in the room title and pick the category / subcategory (the list loads automatically after login).
-    - Click **应用标题** (Apply title) / **应用分区** (Apply category) to submit.
+3. **Update livestream room info** (console):
+    - Fill in the room title and pick the category / subcategory (the list loads after login; the defaults are the server's current values).
+    - Click **Apply title** / **Apply area** to submit.
 
-4. **Start live (open the Bilibili live session)**:
-    - Click **开播** (Go live) in the console; **all lines** (primary/backup, protocol/provider, address, stream key) appear in the console and can be copied.
-    - In OBS, go to **Settings** → **Stream**, choose the service that matches the line, and paste:
-        - RTMP line: Service **Custom**, Server = push URL (e.g., `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
+4. **Get stream key (open the Bilibili live session)**:
+    - Click **Get stream key** (获取推流码) in the dock or the console; **all lines** (primary/backup, protocol/provider, address, stream key) appear and can be copied.
+    - In OBS, go to **Settings → Stream**, choose the service that matches the line, and paste:
+        - RTMP line: Service **Custom**, Server = push URL (e.g. `rtmp://live-push.bilivideo.com/live-bvc/`)
         - SRT line (`rtmpsrt://`): the plugin merges a **Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT**
           entry (protocol `bvc_srt`) into OBS's rtmp-services catalog whenever a stream starts or the
           console opens — unconditionally, so even sessions without an `rtmpsrt://` line keep the
           entry (with the default server). Choose it as the Service, pick this session's
-          `rtmpsrt://` server, and paste the stream key from the console. OBS then uses this
+          `rtmpsrt://` server, and paste the stream key. OBS then uses this
           plugin's private SRT output (RTMP over SRT, UDP 1935), not OBS's native MPEG-TS SRT.
           Close/reopen the Settings dialog to refresh the service list.
     - Click **Start Streaming** in OBS. The plugin only handles go-live signalling, line display and
-      the service catalog entry; it does not modify your selected service/encoders/outputs, and
-      starting the actual stream is always your call (ADR-0005/0007).
+      the service catalog entry; **the stream button is always yours**.
 
-5. **Stop**:
-    - Stop streaming in OBS first, then click **停播** (End live) in the console to close the Bilibili live room.
-    - **打开直播间** (Open live room), from the menu or the console, opens your live page in the browser.
+5. **Close live room (end the live session)**:
+    - Stop streaming in OBS first, then click **Close live room** (关闭直播间). The dock asks for confirmation (Enter and Esc both default to **Cancel**; the console uses a two-step button); only then is the stop-live signal sent. While OBS is still streaming it only tells you to stop streaming first.
+    - After the session ends the stream lines are discarded and cleared automatically; press **Get stream key** again before the next stream.
+    - **Open room page** opens your live page in the browser.
+
+6. **Recover stream key**: if OBS crashed or was restarted while the server still shows **live** (the dock says live but no lines are shown), click **Recover stream key** (找回推流码) to fetch this session's address/key again, paste them into OBS and press Start Streaming to rejoin the same session.
+
+7. **Room settings…**: dock button that opens the console (same entry as **Tools → B站直播控制台**).
 
 ## Troubleshooting
 
@@ -126,8 +124,13 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
   negotiation) and displays stream keys and server lines. Streaming itself is done by
   OBS; the plugin never rewrites OBS settings. Backup channels are display-only (no
   second push); multi-platform simulcast, co-broadcasting and ARTC/WHIP are out of scope.
-- **Stream key lifetime**: keys delivered at start-live are session-scoped; resume the
-  broadcast from the console after a disconnect to obtain a fresh one.
+- **Stream key lifetime**: keys delivered at start-live are session-scoped; once the
+  session ends (or the server reports offline) the plugin drops the stale lines at the
+  next check — press **Get stream key** again for a fresh one.
+- **Logs and privacy**: the plugin log **never contains** stream keys, `live_key`, login
+  tickets or cookies (only HTTP status and code/message), so logs can be shared as-is.
+  To capture raw responses while debugging protocol issues, start OBS with the
+  environment variable `BILI_TRACE_HTTP=1` (such logs do contain credentials — do not share them).
 - **Logs**: If you encounter issues, check OBS log files:
   - Windows: `C:\Users\<YourUser>\AppData\Roaming\obs-studio\logs`
   - macOS: `~/Library/Logs/obs-studio/`
@@ -135,11 +138,16 @@ The plugin will be installed to `/usr/lib/obs-plugins/` directory.
 
 ## Requirements
 
-- OBS Studio 30.0 or higher
+- OBS Studio 30.0 or higher (the dock needs the dock API of 30.0.2+; older versions
+  automatically fall back to the console-only form)
 - Windows / Ubuntu 24.04 or higher
-- Building the private SRT output requires libsrt headers (`libsrt-gnutls-dev` or
-  `libsrt-openssl-dev`); running it needs the matching `libsrt1.5-gnutls` runtime.
-  Without the headers CMake disables that feature and the rest still builds.
+- **Runtime**: Qt6 Widgets (shipped with OBS, nothing to install); libsrt 1.5 runtime
+- **Build**: libobs/obs-frontend-api dev files, libcurl, Qt6 dev package
+  (Debian/Ubuntu `qt6-base-dev`; Windows/macOS use the pre-built Qt from obs-deps),
+  libsrt headers (`libsrt-gnutls-dev` or `libsrt-openssl-dev`).
+  `-DENABLE_DOCK=OFF` builds the Qt-free form without the dock; without libsrt
+  headers pass `-DENABLE_SRT_OUTPUT=OFF` (the default is ON and fails at configure
+  time when the library is missing).
 
 ## Contributing
 

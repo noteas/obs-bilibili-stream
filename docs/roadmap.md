@@ -14,6 +14,7 @@
 | 0006 | SRT 线路只展示；私有 RTMP-over-SRT 输出不复用 OBS 原生 SRT；U-SRT 已逆向钉死（E-24） |
 | 0007 | 私有 SRT 输出：注册 `bvc_srt_output`，向 rtmp-services 用户级 services.json 合并「B站私有 SRT」条目；不写用户推流配置 |
 | 0008 | fork 上游 OBS 32.2 RTMP 栈（`third_party/obs-rtmp-srt`），RTMP/FLV 逻辑零改动，只在 socket 层加 SRT 分支 |
+| 0010 | 状态侧栏（Qt Widgets，仅 `src/ui/dock.*`）+ 会话控制器 `Core::Session`；关闭直播间二次确认；`QT_NO_VERSION_TAGGING` + Qt 符号 allowlist 审计保持 OBS 30.0+ 承诺 |
 
 ## 里程碑(按依赖排序,一个分支一个里程碑,原子提交)
 
@@ -29,11 +30,13 @@
 | M3 | `milestone/m3-backup` | `backup_stream=1` 参数位 + `protocols_backup` 全量展示(按 ADR-0005 改为线路展示,不做「切到备流」按钮) | — | 完成(2026-11-25:开播(含备流)→主/备线路全量入 `config.stream_targets` 并逐条展示;backup_stream_type/stream_biz 字面值已定(E-19:RequestStartLive 14 参 vcall 实锤 backup_stream_type=2/stream_biz="Paylive",教室房 "ClassRoom";U6 路由=槽 0x68 备流 builder);**备流被拒回退**——实网 70003 自动按普通开播重试并上抛原因;语义更正:备流=主备双通道(可同时推、主流失效备流生效),插件只展示备流通道数据;U6 闭合后已对齐(2026-11-26):备流请求默认恒注 backup_stream_type=2/stream_biz=Paylive(3.0.2 起固定官方字面量,探针已移除);复验记录:①恒注伴参后 70003→70002(伴参已达服务端,分配走得更深)②备流路径补注 src(get_stream_by_roomId.stream_line,checked 优先)待用户在场实测;③src=8 注入后仍 70002,body 与官方默认字面量指令级全等⇒排除 body;④access_key 假设经 E-20 定案弱化(web token 无桥,官方 web 登录大概率为空);⑤E-21 定位传输层具体嫌疑=插件自造的 client_traceid UUID(官方非空才注、原生 32-hex),已改默认不发+client_traceid_probe 探针,实网复验仍 70002;⑥**E-22 根因定案(2026-11-26,订正 E-19「官方恒带备流伴参」)**:官方开播分派器 F-180d5de60 按 upower_privilege_type(§3.10 GetVisibleMode)switch,仅 ==5("PRELIVE_UPOWER")走备流 builder,其余走标准 builder(不带备流参)⇒ 无资格账号官方从不发 backup_stream,70002=插件强发伴参的业务层正确拒绝(普通开播 protocols_backup:null 互证;libcurl 其余接口全成功 ⇒ 指纹出局)。仓库已修:单「开播」按钮自动判定(先 getVisibleMode 查资格,==5 才注 src+备流三参,≠5 按官方普通请求发送并提示无资格;「开播(含备流)」独立按钮已并入);待实网复验回值) |
 | M4 | `milestone/m4-srt-output` | 私有 SRT 输出（`bvc_srt_output` + `bvc_srt` 协议 + 服务目录合并）：完整 RTMP over SRT（E-24 参数）；HEVC/AV1 走 Enhanced-RTMP（E-26 §3）；用户在 OBS「设置→直播」选「Bilibili Live - RTMPSRT」条目，插件不写用户推流配置 | U-SRT | 手搓实现已回退（2026-11-27，E-27：服务器无逐字节要求，官方 rtmpsrt 与原始 RTMP 的 RTMP 层同源=上游 OBS 血统）；保留服务目录无条件写 + rtmpsrt 线路解析/展示（真机验收过的旧实现留档 git 历史）。重实现口径 = fork submodule `third_party/obs-rtmp-srt`（基线 = 上游 OBS 32.2.0 RTMP 栈逐字导入），仅 socket 层改 SRT（E-24 参数），RTMP/FLV 逻辑零改动（ADR-0008）；真机验收判据 = 服务器接受且流正常（E-27 §4）。**2026-11-27 实现完成**：`bvc_srt_output` 已链入插件（srt_module 注册壳），crypto 走 OBS 官方 mbedTLS 路径，Release/Debug 双构建 + CTest 全绿；实机加载失败已修（缺 `OBS_MODULE_USE_DEFAULT_LOCALE`，rtmp-stream.c 引用的 `obs_module_text` 须由插件侧宏定义）；全插件界面文案 i18n 落地（zh-CN/en-US `data/locale/`，ADR-0003 补充；`data/locale/` 列为安装必装项）；待真机推流验收 |
 
+| M5 | `milestone/m5-dock-session` | **全量审计 + 交互优化**(2026-11-27):① 运行期状态抽出为 `Core::Session`(登录态/房间态/线路/忙碌/分区),控制台与侧栏都是它的视图;② 刷新链从「nav + sso/list + N 个 SSO 域 + room/GetInfo ×2」(≥9 请求)降到 nav + room/GetInfo 两请求,SSO 只在扫码登录成功后做一次;③ nav 三态(已登录/未登录/未知):网络抖动、-412 不再被当成「未登录」;④ 去掉 config.json 占位值(`room_id=12345`/`your_csrf_token`/`我的直播`),标题/分区以服务端 room/GetInfo 回填;⑤ 分区加载失败不再「请求→重建→再请求」死循环(失败只在重开控制台时重试一次);⑥ 日志不再落响应体(推流码/live_key/登录 ticket/refresh_token 此前每次开播/登录都进 OBS 日志;排查用 `BILI_TRACE_HTTP=1` 显式开);⑦ HTTP worker 卸载时 join(此前 detach,登录轮询每 2s 醒来跑已卸载代码);⑧ Cookie 只发 B站自有域名、删除型 Set-Cookie 生效、config.json 原子写 + 0600;⑨ startLive 回退只在 70002/70003 且本次真发了备流参数时;⑩ Windows 非 ASCII 用户名路径(u8path)修复 services.json/二维码写文件;⑪ 状态侧栏(ADR-0010):登录二维码直接渲染、房间态、线路一键复制、「获取推流码/关闭直播间(二次确认)/找回推流码」、「直播间设置…」打开控制台,首启自动显示;⑫ 线路随场次作废(服务端判未开播后清掉)。验证:`tests/bili_parsers_test.cpp`(73 条解析断言)+ `tests/harness`(真实 libobs 32.2 + 真实 Qt offscreen + 假服务端,13 场景,ASan/UBSan/LSan 零报告) | — | 完成(2026-11-27,离线 + 无头集成全绿;**真机验收待用户**:侧栏停靠/主题/中文 Windows 路径/扫码登录需在用户 OBS 上过一遍) |
+
 ## 控制台字段清单(M0 验收口径,后续里程碑逐项激活)
 
-- **状态行**(TEXT_INFO,含 WARNING/ERROR 色):登录态(mid/昵称)、房间态(room_id、live_status、锁房/风控)、质量信息(推荐码率+干预+编码能力)、最近一次操作结果
-- **线路区**(文本行,可选中复制):开播/找回所得的**全部线路**逐条展示(`主线路N · 协议/provider 地址`+`推流码`;备流同样逐条),插件不写 OBS 配置(ADR-0005)
-- **按钮**:扫码登录(QR SVG→系统浏览器;轮询 2s/90 次≈3 分钟)、刷新、应用标题、应用分区、拉取推荐码率与编码能力、开播(自动判定备流资格:先查 GetVisibleMode,==5 发备流请求,否则普通请求,E-22)、停播、恢复推流(M1b)、结束进行中场次(M1b,两段式确认)
+- **状态行**(TEXT_INFO,含 WARNING/ERROR 色):登录态(mid)、房间态(房间/标题/分区/场次/锁定,全部来自服务端 room/GetInfo;刷新失败显示上次结果并标陈旧)、质量信息(推荐码率+干预+编码能力)、最近一次操作结果
+- **线路区**(文本行,可选中复制):开播/找回所得的**全部线路**逐条展示(`主线路N/备流N · 协议/provider 地址`+`推流码`;主备各自编号),插件不写 OBS 配置(ADR-0005);侧栏同源并带「复制」按钮
+- **按钮**(控制台;侧栏同口径):扫码登录(二维码在侧栏直接扫;无侧栏时 SVG→系统浏览器;轮询 2s,过期自动换新直到成功/取消)、取消登录、刷新、应用标题、应用分区、拉取推荐码率与编码能力、**获取推流码**(= 开播信令,自动判定备流资格:先查 GetVisibleMode,==5 发备流请求,否则普通请求,E-22)、**关闭直播间**(= 停播信令,控制台两段式 / 侧栏确认框;OBS 推流中拒绝)、**找回推流码**(M1b 恢复)、直播间设置…(侧栏 → 打开控制台)
 - **下拉**:分区大类/二级分区(M0c)
 - **输入**:直播间标题(经 `UpdatePreLiveInfo`)、视频码率(只写当前编码器 bitrate)
 - 隐藏配置(不入面板):无。3.0.2 起 `use_legacy_endpoints`、`recommend_protocol`、
@@ -57,3 +60,9 @@
 ## 真实调用测试原则
 
 离线验证(解析单测 + 反编译对照 + dry-run 日志)为默认;到关键节点列"待实测清单",用户在场并同意才真发一次 startLive/stopLive/恢复。
+
+**离线验证的三层(M5 起)**:
+
+1. `ctest`:`srt_target_test`/`srt_catalog_test`/`bili_parsers_test`(端点响应解析,fixtures = 契约钉死的形状)。
+2. 无头集成 `tests/harness/run_headless.sh`(需 X display、python3、openssl;`-DBUILD_HARNESS=ON`):真实 libobs + 真实 Qt(offscreen)+ 假 B站服务端(CONNECT 代理 + TLS 卸载),把编译出的 .so 按 OBS 的方式装进来,从外部驱动侧栏走完登录/获取推流码/二次确认/找回/退出卸载,并对照假服务端请求日志断言「发了什么、没发什么」;OBS 日志里出现推流码/会话凭据即失败。CI 在 ubuntu-24.04 跑,本地可加 `-fsanitize=address,undefined` 构建。它不替代真机:停靠布局、主题、HiDPI、真实扫码仍需用户 OBS。
+3. Qt 符号审计 `tests/check_qt_symbols.py`:插件引用的 Qt 符号 ⊆ allowlist(逐个对照 Qt 6.2.4 导出表),CI 在 Ubuntu/Windows 构建后跑。

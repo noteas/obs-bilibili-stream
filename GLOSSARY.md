@@ -22,7 +22,7 @@ _Avoid_: 开播、关播(这两个词专指信令轴)
 服务端认为仍在直播、但本地 OBS 未在推的场次(OBS 崩溃/断电后残留)。断流恢复的处置对象。
 
 **断流恢复**:
-检测到自己房间存在进行中场次(§room/GetInfo `live_status==1`)后,经 get_stream_by_roomId / GetUpStreamRtmp 取回可推地址并在控制台展示,由用户填入 OBS 后自行点推流接回原场次。插件不改写 OBS 配置。
+检测到自己房间存在进行中场次(§room/GetInfo `live_status==1`)后,经 get_stream_by_roomId / GetUpStreamRtmp 取回可推地址并在控制台/侧栏展示,由用户填入 OBS 后自行点推流接回原场次。插件不改写 OBS 配置。
 _Avoid_: 重连、断线重连(那是 OBS 输出层重试,不同概念)
 
 ### 推流路
@@ -67,15 +67,33 @@ OBS 对未知 scheme `rtmpsrt://` 的处理:librtmp 按 scheme 长度判定失�
 ### UI 与集成
 
 **控制台**:
-提供属性面板式 UI 的隐藏私有 source,是插件唯一的 UI 载体,控件全部由 OBS 渲染。
-_Avoid_: 对话框、弹窗、dock
+「配置界面」——隐藏私有 source「控制台」的 obs_properties 面板,控件全部由 OBS 渲染
+(改标题/分区、拉取推荐码率、线路可复制)。ADR-0003 的 Qt-free 载体;侧栏的「直播间设置…」
+与工具菜单都打开它。_Avoid_: 对话框、弹窗(控制台内提示仍只走状态行与 OBS 日志)
+
+**侧栏(Dock)**:
+`src/ui/dock.*` 注册的 Qt Widgets 停靠面板(ADR-0010,OBS「Docks」菜单可开关、布局随 OBS
+保存):登录二维码、房间态快照、线路一键复制、「获取推流码/关闭直播间/找回推流码」。
+它是 Core::Session 的视图,不含任何业务状态;OBS 仍在推流时拒绝关闭直播间。
+_Avoid_: 把侧栏叫「控制台」(两者是同一状态的两个视图,入口不同)
+
+**会话控制器(Core::Session)**:
+插件运行期状态的唯一所有者(登录态/房间态快照/线路表/忙碌/分区表);控制台与侧栏只是
+它的 Listener 视图。「是否在播」以服务端 room/GetInfo 的 live_status 为准,本地标志只做
+乐观更新并在下一次刷新被覆盖。
+
+**按钮口径**:
+界面标签按用户口径(2026-11-27):开播按钮写「获取推流码」(点完拿到的是推流地址与推流码),
+停播按钮写「关闭直播间」(需二次确认),恢复写「找回推流码」。文档里 开播/停播 仍专指信令。
 
 **线路**:
 开播响应 `protocols[]`/`protocols_backup[]` 里的一条推流目标(协议/providers/地址/推流码)。官方给几条就展示几条,插件不排序、不选择。
 _Avoid_: 档位、备选(易与质量档混淆)
 
 **线路展示**:
-把**全部线路**以可复制文本行呈现给用户,由用户在 OBS 里自行填写。插件**不改写** OBS 服务配置(ADR-0005)。
+把**全部线路**以可复制文本呈现给用户(控制台:可选中复制;侧栏:「复制」按钮到剪贴板),
+由用户在 OBS 里自行填写。插件**不改写** OBS 服务配置(ADR-0005)。线路随场次作废:
+停播、或服务端判定未开播后,下一次刷新即清掉本地线路表。
 _Avoid_: 服务改写、写回、自动填充
 
 ### 协商与控制
@@ -96,10 +114,13 @@ _Avoid_: 选档、档位回执、自动换编码器(注:GetQualityData/QualityCa
 首启经 `x/frontend/finger/spi` 取一次,之后跨启动复用(持久化,见 Cookie 白名单);不是登录凭据,未登录也携带。
 
 **会话追踪串(client_traceid)**:
-每次插件加载生成的 UUIDv4,同一 OBS 会话内全部请求同值,随请求头携带。
+官方仅在会话 traceid 非空时才发该请求头;插件没有服务端来源,**恒不发**
+(E-21:曾自造随机 UUID,已移除)。`Http::HttpClient::traceid()` 恒为空。
 
 **Cookie 白名单**:
 `SESSDATA`/`bili_jct`/`DedeUserID`/`buvid3`/`buvid4` 五键——服务端轮转后唯一回写 config.json 的键;其余服务端 Set-Cookie 只存内存 jar。
+jar 本身域无关,所以 Cookie 只发给 B站自有域名后缀(bilibili.com / biligame.com 等,
+`http_client.cpp` 的 `kCookieHostSuffixes`);删除型 Set-Cookie(`name=`)会清掉本地键。
 
 **公共参数**:
 每个 app-blink/live 签名请求由注入器统一携带的 ts/version/appkey/platform=pc_link/build/access_key 六键(值来自服务端版本接口、常量与 App OAuth 身份);`nav` 也按官方 builder 携带 appsign;passport 登录 H5 的请求由页面自己处理。UpdatePreLiveInfo 是已证的管线例外:签名只覆盖公共参数。

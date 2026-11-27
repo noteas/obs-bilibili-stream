@@ -30,20 +30,15 @@
     ```
 5.  **启动 OBS**：重新启动 OBS Studio，插件将自动加载。
 
-### Ubuntu/Debian
+### Ubuntu/Debian(用户插件目录 zip)
 
-1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的 `.deb` 包（例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.deb`）。
-2.  **安装插件**：运行以下命令：
+1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的用户插件目录 zip(例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.zip`)。
+2.  **解压即装**：解压到用户插件目录,得到 `bin/64bit/bilibili-stream-for-obs.so` 与 `data/locale/`：
     ```bash
-    sudo dpkg -i bilibili-stream-for-obs-*.deb
+    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
     ```
-3.  **修复依赖**（如需要）：
-    ```bash
-    sudo apt-get install -f
-    ```
-4.  **启动 OBS**：重新启动 OBS Studio，插件将自动加载。
-
-插件将安装到 `/usr/lib/obs-plugins/` 目录。
+3.  **运行库**：私有 SRT 输出需要 `libsrt1.5-gnutls`(Debian/Ubuntu:`sudo apt install libsrt1.5-gnutls`);侧栏用的 Qt6 由 OBS 自带。
+4.  **启动 OBS**：重新启动 OBS Studio,插件将自动加载。
 
 ### Flatpak（OBS Studio Flatpak）
 
@@ -88,34 +83,37 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 
 ## 使用方法
 
-> v2.2 起插件不再使用独立弹窗,全部操作集中在 OBS 原生渲染的 **「B站直播控制台」** 窗口(ADR-0003);插件不再依赖 Qt。
+> v3.2 起有两个入口,显示的是**同一份服务端状态**:**侧栏「B站直播」**(常态看状态、点常用操作)和**「B站直播控制台」**(改标题/分区、拉取推荐码率)。首次加载时侧栏自动显示在右侧停靠区,之后布局由你自己安排(OBS 会记住)。插件不启动推流、不改写 OBS 推流配置(ADR-0001/0005)。
 
-1. **打开控制台**:启动 OBS,菜单栏 **工具(Tools)→ B站直播控制台**。
+1. **侧栏**:菜单栏 **停靠栏(Docks) → B站直播**。显示登录态、房间号/标题/分区、场次状态(未开播/直播中/轮回/锁定)、OBS 是否在推流、最近一次与服务端对账的时间,以及本场全部推流线路(地址与推流码各带「复制」按钮)。信息每分钟对账一次,OBS 开始/停止推流后立即刷新;刷新失败时保留上次结果并提示原因。
 
-2. **登录 Bilibili**:
-    - 在控制台点击 **扫码登录**:登录二维码会在系统浏览器中打开(若无法打开浏览器,状态栏会给出链接供手动访问)。
-    - 手机 B站 App 扫码并确认后,控制台状态行自动更新为"已登录"。
-    - 也可直接用菜单 **工具 → B站扫码登录**,无需先开控制台。
+2. **登录 B站**:
+    - 侧栏点 **扫码登录**:二维码直接显示在侧栏里,用手机 B站 App 扫码确认(也可点「在浏览器打开二维码」)。二维码过期自动换新,**取消登录**可随时中止。
+    - 没有 Qt 侧栏的形态(OBS < 30.0.2)下二维码改在系统浏览器打开;若浏览器也打不开,状态行给出链接。
 
-3. **更新直播间信息**:
-    - 在控制台填写 **直播间标题**、选择 **分区大类 / 二级分区**(分区列表登录后自动加载)。
+3. **更新直播间信息**(控制台):
+    - 填写**直播间标题**、选择**分区大类 / 二级分区**(分区列表登录后自动加载;标题/分区默认值就是服务端当前值)。
     - 分别点击 **应用标题** / **应用分区** 提交。
 
-4. **开播(打开 B站直播场次)**:
-    - 控制台点击 **开播**;成功后**全部线路**(主/备、协议/provider、地址、推流码)显示在控制台,均可选中复制。
-    - 在 OBS 中,打开 **设置** → **推流**,按线路协议选择服务并粘贴地址/推流码:
-        - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/?streamname=...`)
+4. **获取推流码(向服务端打开直播场次)**:
+    - 侧栏或控制台点 **获取推流码**;成功后**全部线路**(主/备、协议/provider、地址、推流码)逐条出现,均可复制。
+    - 在 OBS 中打开 **设置 → 直播**,按线路协议选择服务并粘贴地址/推流码:
+        - RTMP 线路:服务选 **自定义**,服务器粘贴推流地址(例如 `rtmp://live-push.bilivideo.com/live-bvc/`)
         - SRT 线路(`protocol=srt`,地址为 `rtmpsrt://...`):插件在开播成功/打开控制台时会把私有 SRT 条目
           合并进 OBS 服务列表(无条件写:本次没有 rtmpsrt 线路时条目内为默认入口)。
           服务选 **「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」**,
-          服务器选本次的 `rtmpsrt://` 地址,推流码从控制台复制后手动填写(若设置窗口已打开,先关闭再打开以刷新列表)。OBS 会用本插件的私有 SRT 输出
+          服务器选本次的 `rtmpsrt://` 地址,推流码粘贴(若设置窗口已打开,先关闭再打开以刷新列表)。OBS 会用本插件的私有 SRT 输出
           (RTMP over SRT,UDP 1935),而不是 OBS 原生 SRT(MPEG-TS,接不上)。详见契约 §4.6 / ADR-0007
-    - 点击 OBS 右下角 **开始输出/开始推流**。插件只负责开播信令、线路展示与服务目录合并,
-      不改写你的已选服务/编码/输出配置,推流按钮永远由你在 OBS 点击(ADR-0005)。
+    - 点击 OBS 右下角 **开始直播**。插件只负责开播信令、线路展示与服务目录合并,**推流按钮永远由你点**。
 
-5. **停播**:
-    - 先在 OBS 停止推流,再在控制台点击 **停播** 关闭 B站直播间。
-    - **打开直播间**(菜单或控制台按钮)可在浏览器打开自己的直播页面。
+5. **关闭直播间(结束直播场次)**:
+    - 先在 OBS 停止推流,再点 **关闭直播间**。侧栏会弹确认框(回车/Esc 默认都是「取消」;控制台是两段式按钮),确认后才向服务端发送停播信令。OBS 还在推流时只提示「先停止推流」,不会关房间。
+    - 停播后线路随场次作废并自动清空;想再播需重新「获取推流码」。
+    - **打开直播间页** 可在浏览器打开自己的直播页面。
+
+6. **找回推流码**:OBS 崩溃/重启后服务端仍在直播(侧栏显示「直播中」但没有线路)时,点 **找回推流码** 取回本场的推流地址与推流码,填入 OBS 后点开始直播即可接回原场次。
+
+7. **直播间设置…**:侧栏按钮,打开控制台(与工具菜单 **B站直播控制台** 同一入口)。
 
 ## 注意事项
 
@@ -127,7 +125,10 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 - **功能边界**：插件只代理开播/停播/恢复开播与质量协商等信令，并展示线路与推流码；
   推流由 OBS 本身完成，插件不改写 OBS 设置。备流（主备双通道）仅展示线路，
   不驱动第二路推流；联播、连麦、ARTC/WHIP 不在本插件范围。
-- **推流码时效**：开播信令下发的推流码为会话级有效；断播后请在控制台重新恢复开播获取。
+- **推流码时效**：开播信令下发的推流码为会话级有效；停播或服务端判定场次结束后,插件会在下一次对账时自动清掉失效线路,重新「获取推流码」即可。
+- **日志与隐私**:插件日志**不包含**推流码、live_key、登录票据或 Cookie(只记 HTTP 状态与
+  code/message),分享日志前不必再手工打码;排查协议问题需要响应原文时,临时设置环境变量
+  `BILI_TRACE_HTTP=1` 再启动 OBS(开着它产生的日志含凭据,不要外传)。
 - **日志查看**：如果遇到问题，检查 OBS 日志文件：
   - Windows: `C:\Users\<YourUser>\AppData\Roaming\obs-studio\logs`
   - macOS: `~/Library/Logs/obs-studio/`
@@ -135,11 +136,13 @@ flatpak uninstall --user com.obsproject.Studio.Plugin.BilibiliStream
 
 ## 依赖
 
-- OBS Studio 30.0 或更高版本
+- OBS Studio 30.0 或更高版本(侧栏需要 30.0.2+ 的 dock API;更老的 OBS 自动退回「只有控制台」)
 - Windows / Ubuntu 24.04 或更高版本
-- 构建私有 SRT 输出需要 libsrt 开发包：Debian/Ubuntu `libsrt-gnutls-dev`
-  （或 `libsrt-openssl-dev`）；运行需要对应的 `libsrt1.5-gnutls`（或 openssl 变体）。
-  未找到开发包时 CMake 会关闭该功能，插件其余部分仍可正常构建/使用。
+- **运行**:Qt6 Widgets(OBS 自带,无需额外安装);libsrt 1.5 运行库(Debian/Ubuntu `libsrt1.5-gnutls`)
+- **构建**:libobs/obs-frontend-api 开发包、libcurl、Qt6 开发包(Debian/Ubuntu `qt6-base-dev`;
+  Windows/macOS 走 obs-deps 预编译 Qt)、libsrt 开发包(`libsrt-gnutls-dev` 或 `libsrt-openssl-dev`)。
+  `-DENABLE_DOCK=OFF` 可构建不带侧栏的 Qt-free 形态;没装 libsrt 开发包时用
+  `-DENABLE_SRT_OUTPUT=OFF` 关闭私有 SRT 输出(默认开,缺库会在配置阶段失败),插件其余功能照常。
 
 ## 贡献
 

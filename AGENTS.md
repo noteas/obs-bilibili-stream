@@ -8,14 +8,17 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 
 ## 仓库地图
 
-- `src/bilibili_api.*` — 全部端点的 builder+parser。一个端点 = 一对函数;参数注入只走统一管线(appsign/csrf/公共参数,契约 §1),不在端点内手写签名或手拼参数
-- `src/http_client.*` — libcurl 传输 + cookie jar;请求头/指纹的唯一出口
-- `src/plugin-main.cpp`、`src/ui/` — OBS 原生 UI:工具菜单 + 隐藏私有 source「控制台」的 obs_properties(OBS 自己渲染,插件运行期只依赖 libobs/obs-frontend-api/libcurl,见 ADR-0003)
+- `src/bilibili_api.*` — 全部端点的 builder。一个端点 = 一个函数;参数注入只走统一管线(appsign/csrf/公共参数,契约 §1),不在端点内手写签名或手拼参数
+- `src/bili_parsers.*` — 响应解析的纯函数层(无 I/O、无 obs 依赖):nav 三态、room/GetInfo、startLive 信封解析序;`tests/bili_parsers_test.cpp` 喂契约形状的 fixtures
+- `src/http_client.*` — libcurl 传输 + cookie jar;请求头/指纹的唯一出口。单 worker 线程,卸载时中止在途请求并 **join**(模块随 dlclose 卸掉,不能留线程跑在自己的代码里)
+- `src/core/session.*` — **运行期状态的唯一所有者**(登录态/房间态快照/线路表/忙碌/分区表);一切 UI 只是它的 Listener 视图。「是否在播」以服务端 room/GetInfo 为准
+- `src/plugin-main.cpp`、`src/ui/` — UI:`console.*` = 隐藏私有 source「控制台」的 obs_properties(配置界面,Qt-free);`dock.*` = 状态侧栏(Qt Widgets,ADR-0010,**工程里唯一包含 Qt 头的翻译单元**,不定义 Q_OBJECT 免 moc)。两处都不写业务状态,只读 Session、调 Session
 - `src/md5`、`src/json11`、`src/qrcodegen` — vendored,保持不动
 - `third_party/obs-rtmp-srt` — git submodule,own fork(基线 = 上游 OBS 32.2.0 的 `librtmp` + `rtmp-stream`/`flv-mux` 逐字导入)。rtmpsrt 重实现的载体:**RTMP/FLV/AMF 逻辑零改动,只在 socket 层加 SRT 分支**,SRT 改造全部落在本 fork、不在主仓手搓协议(见 ADR-0008、E-27)
 - `docs/api/livehime-api.md` — **端点契约**:增/改任何请求参数、请求头、响应字段前必读,那里有每个字段的注入条件与官方解析顺序;契约里没有的字段 = 先补逆向再实现,不许猜
 - `docs/roadmap.md` — 里程碑与缺口状态;每个里程碑收尾必须同步它
 - `docs/adr/` — 架构决策。提出与任一 ADR 相左的方案前先读对应 ADR
+- `tests/` — 三层离线验证:`ctest`(srt_target/srt_catalog/bili_parsers 解析);`tests/harness`(无头集成:真实 libobs + 真实 Qt offscreen + 假 B站服务端,见 `tests/harness/README.md`);`tests/check_qt_symbols.py`(Qt 符号 ⊆ allowlist,ADR-0010)
 - `re/` — 本地逆向档案,**不入 git**(Ghidra 反编译原文、证据 E-xx/F-地址、分析脚本)。契约中的证据编号只在这份档案里可解析
 
 ## 工具
@@ -23,6 +26,8 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使用Headless模式，操作时不要凭记忆，参考套件内自带的离线文档！
 
 你可以用本机的其他工具，但不要安装工具，除非必须。在这种情况下，你需要暂停，由我自己安装。
+
+注意:Ghidra 与 `re/` 逆向档案只存在于主开发机(用户 `zxd`);其他机器(如 `modenicheng` 服务器)上没有。没有档案时**只能引用契约里已有的结论**,不得新增端点/字段/参数,需要新逆向就停下来告诉用户。
 
 ### Ghidra 使用准则（2026-11-26 确立，详见 `re/GHIDRA-NOTES.md`）
 
@@ -47,15 +52,24 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 - 未定项在动码前先确认
 - 真实开播类调用(startLive/stopLive/恢复)**仅在用户在场并明确同意时**发起;平时验证 = 离线解析测试 + dry-run 日志
 - 每项独立改动原子提交;文档、注释时刻与代码同步
+- **日志零凭据**:任何情况下 OBS 日志不得出现推流码、live_key、登录 ticket/refresh_token、Cookie、完整响应体(只记 HTTP 状态 + code/message;传输失败记主机名 + curl 原因,不记 URL 查询串)。排查契约问题要原文时由用户显式设 `BILI_TRACE_HTTP=1`,且提醒不要外传该日志
+- **UI 只读 Session**:新增界面状态一律进 `Core::Session`,视图(控制台/侧栏)不持有业务状态;Qt 只允许出现在 `src/ui/dock.cpp`;不要在控件信号的调用栈里 delete 控件(重建一律经 0ms 单发定时器)
+- **构建失败时不要吞输出**(2026-11-27 教训:把 make 输出丢进 /dev/null,链接失败没被发现,拿旧 .so 跑了一轮测试得到假结论)
 - **跨平台原则**:主仓与 `third_party/` fork 的全部 C/C++ 在 Linux(主开发平台)与 Windows(MSVC,官方 OBS 构建链)都必须可编译、可测试;平台差异(套接字 API、线程句柄、printf 格式符、动态库导出等)只隔离在薄的编译期分支层,主体逻辑禁止平台专有写法;libsrt 等第三方依赖在两端都要有对应链接路径(Windows 官方 OBS 自带 srt.dll)。拿不准写法时,照 OBS 上游同场景的可移植写法
 - **零警告原则**:Release/Debug 构建与全部测试一律 **0 警告**;新代码与被打补丁的上游代码都不许新增警告,更禁止用抑制警告的编译选项掩盖问题;第三方 fork 上游文件自带的警告不强制清理(保持 diff 最小),但必须确认无害
 
 ## 构建
 
-配置/构建 preset 见 `CMakePresets.json`(configure preset `ubuntu-x86_64`,产物目录 `build_x86_64/`,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包,均无 Qt)。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
+配置/构建 preset 见 `CMakePresets.json`(configure preset `ubuntu-x86_64`,产物目录 `build_x86_64/`,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包 + **Qt6 Widgets 开发包**(`qt6-base-dev`,侧栏用,ADR-0010;`-DENABLE_DOCK=OFF` 回到 Qt-free 形态)+ libsrt/mbedtls 开发包(fork 的私有 SRT 输出用))。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
 
 **调试构建一律 build type = Debug**(2026-11-26 用户确立):preset `ubuntu-x86_64-debug`(产物 `build_x86_64_debug/`),`cmake --preset ubuntu-x86_64-debug && cmake --build --preset ubuntu-x86_64-debug`。崩溃/疑难排查必须带完整符号——配合 systemd-coredump(`coredumpctl info <pid>`)+ `addr2line -f -C -i -e <so> <偏移>` 定位;禁止拿 Release/RelWithDebInfo 排崩溃。日常安装与发版仍走 Release preset。
 
+## 验证
+
+- `ctest --test-dir build_x86_64`(离线解析回归)。
+- `python3 tests/check_qt_symbols.py build_x86_64/bilibili-stream-for-obs.so`(插件引用的 Qt 符号 ⊆ `tests/qt-symbol-allowlist.txt`;新符号先核对存在于 Qt 6.2.4 再入表)。
+- 无头集成(需 X display、python3、openssl;构建时 `-DBUILD_HARNESS=ON`):`xvfb-run -a tests/harness/run_headless.sh build_x86_64/tests/bili_harness build_x86_64/bilibili-stream-for-obs.so`。加 `-fsanitize=address,undefined` 构建再跑一遍可查内存/未定义行为。它不替代真机:停靠布局、主题、HiDPI、真实扫码必须在用户 OBS 上验收。
+
 ## 安装，运行
 
-将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，并将 `data/locale/` 放在 `~/.config/obs-studio/plugins/bilibili-stream-for-obs/data/locale/`（界面文案 i18n 必需，缺了 obs_module_text 只回显键名），OBS将自动加载。
+将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，并将 `data/locale/` 放在 `~/.config/obs-studio/plugins/bilibili-stream-for-obs/data/locale/`（界面文案 i18n 必需，缺了 obs_module_text 只回显键名），OBS将自动加载。加载后:Docks 菜单出现侧栏「B站直播」(首次自动显示一次),工具菜单出现「B站直播控制台」。
