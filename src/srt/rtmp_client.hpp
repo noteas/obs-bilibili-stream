@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -28,7 +30,7 @@ public:
 	// 读一轮入站数据：1=处理了一条消息，0=暂时无数据，-1=连接错误。
 	int PollIncoming(std::string &error);
 
-	bool published() const { return m_publish_started; }
+	bool published() const { return m_publish_started.load(std::memory_order_relaxed); }
 	uint32_t stream_id() const { return m_stream_id; }
 
 private:
@@ -56,6 +58,8 @@ private:
 
 	ByteStream &m_stream;
 	Target m_target;
+	// 读线程会回 Ping/Ack，写线程发媒体；整条消息必须串行化，否则 chunk 头会被交错。
+	std::mutex m_send_mutex;
 
 	uint32_t m_out_chunk_size = 4096;
 	uint32_t m_in_chunk_size = 128;
@@ -66,7 +70,7 @@ private:
 	uint64_t m_bytes_received = 0;
 	uint64_t m_last_ack = 0;
 
-	bool m_publish_started = false;
+	std::atomic<bool> m_publish_started{false};
 	std::string m_last_status;
 	Amf::CommandInfo m_last_command;
 	bool m_last_command_valid = false;

@@ -99,6 +99,8 @@ int RtmpClient::ReadExact(void *data, size_t len, int timeout_ms, std::string &e
 bool RtmpClient::SendMessage(uint8_t type, uint32_t csid, uint32_t msid, uint32_t timestamp, const uint8_t *body,
 			     size_t len, std::string &error)
 {
+	std::lock_guard<std::mutex> lock(m_send_mutex);
+
 	const bool extended = timestamp >= 0xFFFFFF;
 	std::vector<uint8_t> header;
 	header.reserve(16);

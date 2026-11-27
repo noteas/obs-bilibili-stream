@@ -229,6 +229,7 @@ void WorkerMain(SrtOutput *ctx)
 
 	if (!obs_output_begin_data_capture(ctx->output, 0)) {
 		MarkFailed(ctx, "启动编码器数据捕获失败");
+		obs_output_signal_stop(ctx->output, OBS_OUTPUT_ERROR);
 		transport.Close();
 		return;
 	}

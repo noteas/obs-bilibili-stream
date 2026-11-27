@@ -37,15 +37,6 @@ bool obs_module_load(void)
 	return true;
 }
 
-void obs_module_post_load(void)
-{
-	// 此时所有模块（含 rtmp-services）都已加载，再把私有 SRT 服务条目合并进
-	// 服务目录；不写用户的推流配置（ADR-0007）。
-#ifdef BILI_ENABLE_SRT
-	UI::ConsoleRefreshSrtCatalog();
-#endif
-}
-
 void obs_module_unload(void)
 {
 	// Order matters: the console drops its source and refuses queued

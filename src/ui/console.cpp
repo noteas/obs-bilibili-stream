@@ -1051,7 +1051,6 @@ void ConsoleCreate()
 {
 	g_alive = true;
 	g_config.load();
-	refresh_srt_catalog();
 	g_draft_title = g_config.config().title;
 	g_draft_part = g_config.config().part_id;
 	g_draft_area = g_config.config().area_id;
@@ -1085,11 +1084,6 @@ void ConsoleDestroy()
 		obs_source_release(g_source);
 		g_source = nullptr;
 	}
-}
-
-void ConsoleRefreshSrtCatalog()
-{
-	refresh_srt_catalog();
 }
 
 void ConsoleOpenPanel()
