@@ -32,6 +32,7 @@ set(
   \\.github/
   \\.gitignore
   \\.ccache/
+  \\.deps/
   build_.*
   cmake/\\.CMakeBuildNumber
   release/
@@ -43,8 +44,8 @@ set(CPACK_ARCHIVE_THREADS 0)
 
 include(CPack)
 
-# CI 专用:OBS 开发文件走 buildspec 钉死的源码版本(机制与注释见 cmake/linux/buildspec.cmake);
-# 本地开发保持系统 OBS libobs cmake 包路径不变。
+# CI 专用:按 buildspec 钉死的 OBS 源码头编译(机制与论证见 cmake/linux/buildspec.cmake);
+# 链接面仍来自系统 libobs cmake 包。本地开发不进入本模块,行为不变。
 if(DEFINED ENV{CI})
   include(buildspec)
 endif()

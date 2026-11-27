@@ -56,35 +56,18 @@ runs:
         echo "/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin" >> $GITHUB_PATH
         brew update --quiet
         brew install --quiet zsh
-        # OBS 开发文件不再来自 apt(版本不可控,见 cmake/linux/buildspec.cmake):
-        # CI 由 buildspec 钉死 32.2.0 源码构建 libobs ⇒ 这里装 OBS 源码 configure
-        # 的全部 REQUIRED 依赖(libobs 全树 find_package 已清点:SIMDe/FFmpeg/
-        # ZLIB/Uthash/jansson + libobs/cmake/os-linux.cmake 的 UUID/X11/XCB/
-        # PulseAudio(ENABLE_WAYLAND=OFF 避开 Wayland) + libobs-opengl 的 ECM/
-        # Libdrm + glad 的 OpenGL)+ fork 的 libsrt/mbedTLS。
+        # Ubuntu 链接面 = 发行版 libobs-dev(符号子集齐全即可链;头面由
+        # cmake/linux/buildspec.cmake 钉死覆盖,真 32.2 ABI 门槛在 flatpak
+        # job=flathub OBS 运行时)+ fork 的编译依赖(srt/mbedtls/jansson)。
         sudo apt-get update
         sudo apt-get install -y \
           libcurl4-openssl-dev \
+          libobs-dev \
           libsrt-gnutls-dev \
           libmbedtls-dev \
           libjansson-dev \
           libsimde-dev \
-          uthash-dev \
-          libavformat-dev \
-          libavutil-dev \
-          libswscale-dev \
-          libswresample-dev \
-          libavcodec-dev \
           zlib1g-dev \
-          extra-cmake-modules \
-          uuid-dev \
-          libpulse-dev \
-          libdrm-dev \
-          libx11-dev \
-          libxcb1-dev \
-          libx11-xcb-dev \
-          libgl-dev \
-          libglx-dev \
           cmake \
           build-essential \
           ccache

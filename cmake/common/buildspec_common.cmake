@@ -60,14 +60,6 @@ function(_setup_obs_studio)
     set(_cmake_generator "Xcode")
     set(_cmake_arch "-DCMAKE_OSX_ARCHITECTURES:STRING='arm64;x86_64'")
     set(_cmake_extra "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
-  else()
-    # Linux(本插件 CI 用):默认 Makefiles;-G 后必须跟真实参数,
-    # 故第二项放一个无害的缓存变量而非空串(空串会被 cmake 当位置参数拒绝)。
-    # ENABLE_WAYLAND=OFF:插件只用 libobs 头与链接面,Wayland 的
-    # OpenGL-EGL/Wayland 依赖(且 glad 无条件要 OpenGL)不必拉全。
-    set(_cmake_generator "Unix Makefiles")
-    set(_cmake_arch "-DENABLE_UI:BOOL=OFF")
-    set(_cmake_extra "-DENABLE_WAYLAND:BOOL=OFF")
   endif()
 
   message(STATUS "Configure ${label} (${arch})")
