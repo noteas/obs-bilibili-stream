@@ -62,15 +62,16 @@ void test_login_from_nav()
 {
 	std::string mid, message;
 	check(Parse::LoginFromNav(json(R"({"code":0,"message":"0","data":{"isLogin":true,"mid":42}})"), mid, message) ==
-		      Parse::LoginState::LoggedIn &&
+			      Parse::LoginState::LoggedIn &&
 		      mid == "42",
 	      "nav: logged in (numeric mid)");
 	check(Parse::LoginFromNav(json(R"({"code":0,"data":{"isLogin":true,"mid":"77"}})"), mid, message) ==
-		      Parse::LoginState::LoggedIn &&
+			      Parse::LoginState::LoggedIn &&
 		      mid == "77",
 	      "nav: logged in (string mid)");
 	check(Parse::LoginFromNav(json(R"({"code":-101,"message":"账号未登录","data":{"isLogin":false}})"), mid,
-				  message) == Parse::LoginState::LoggedOut && message == "账号未登录",
+				  message) == Parse::LoginState::LoggedOut &&
+		      message == "账号未登录",
 	      "nav: -101 = logged out");
 	check(Parse::LoginFromNav(json(R"({"code":0,"data":{"isLogin":false}})"), mid, message) ==
 		      Parse::LoginState::LoggedOut,
@@ -81,7 +82,8 @@ void test_login_from_nav()
 	      "nav: -412 risk control = unknown (not logged-out)");
 	check(Parse::LoginFromNav(json(R"({"code":0,"message":"0"})"), mid, message) == Parse::LoginState::Unknown,
 	      "nav: code 0 without data object = unknown");
-	check(Parse::LoginFromNav(json("null"), mid, message) == Parse::LoginState::Unknown, "nav: null body = unknown");
+	check(Parse::LoginFromNav(json("null"), mid, message) == Parse::LoginState::Unknown,
+	      "nav: null body = unknown");
 	check(Parse::LoginFromNav(json(R"({"code":0,"data":{"isLogin":true}})"), mid, message) ==
 		      Parse::LoginState::Unknown,
 	      "nav: logged in without mid = unknown");
@@ -109,11 +111,11 @@ void test_start_live_ok()
 		      r.targets[0].key == "?streamname=abc&key=K1",
 	      "start: line keeps its own code as stream key");
 	check(r.targets[2].protocol == "rtmp" && r.targets[2].key == "?streamname=abc&key=K3", "start: rtmp line");
-	check(r.rtmp_addr == "rtmp://txy.live-push.bilivideo.com/live-bvc/" &&
-		      r.rtmp_key != "?streamname=abc&key=K1",
+	check(r.rtmp_addr == "rtmp://txy.live-push.bilivideo.com/live-bvc/" && r.rtmp_key != "?streamname=abc&key=K1",
 	      "start: compat rtmp copy is the first rtmp line (not the srt key)");
 	check(r.rtmp_key == "?streamname=abc&key=K3", "start: compat rtmp key");
-	check(r.primary_addr == "rtmpsrt://txy.live-push.bilivideo.com/live-bvc/" && r.primary_key == "?streamname=abc&key=K1",
+	check(r.primary_addr == "rtmpsrt://txy.live-push.bilivideo.com/live-bvc/" &&
+		      r.primary_key == "?streamname=abc&key=K1",
 	      "start: primary copy is the first line");
 	check(r.face_qr.empty() && r.face_page.empty() && r.notice_line.empty() && r.voucher.empty(),
 	      "start: no blocking payloads");
@@ -176,14 +178,16 @@ void test_start_live_blocks()
 		json(R"({"code":0,"data":{"need_face_auth":true,"qr":"https://face/qr"}})"), "9");
 	check(face.outcome == Parse::StartOutcome::NeedFaceQr && face.face_qr == "https://face/qr",
 	      "start: need_face_auth on code 0");
-	const Parse::StartLive c60024 =
-		Parse::StartLiveEnvelope(json(R"({"code":60024,"message":"需要人脸","data":{"qr":"https://face/60024"}})"), "9");
+	const Parse::StartLive c60024 = Parse::StartLiveEnvelope(
+		json(R"({"code":60024,"message":"需要人脸","data":{"qr":"https://face/60024"}})"), "9");
 	check(c60024.outcome == Parse::StartOutcome::NeedFaceQr && c60024.face_qr == "https://face/60024" &&
 		      c60024.code == 60024,
 	      "start: 60024 face QR");
-	const Parse::StartLive c60043 = Parse::StartLiveEnvelope(json(R"({"code":60043,"message":"x","data":{}})"), "123");
+	const Parse::StartLive c60043 =
+		Parse::StartLiveEnvelope(json(R"({"code":60043,"message":"x","data":{}})"), "123");
 	check(c60043.outcome == Parse::StartOutcome::NeedFacePage &&
-		      c60043.face_page == "https://www.bilibili.com/blackboard/live/auth-middle.html?source_event=200&mid=123",
+		      c60043.face_page ==
+			      "https://www.bilibili.com/blackboard/live/auth-middle.html?source_event=200&mid=123",
 	      "start: 60043 auth-middle page carries mid");
 	// 备流被拒(70002/70003)= 普通 Rejected,由 BiliApi 决定回退;其它业务错误同理。
 	const Parse::StartLive c70002 =
@@ -193,8 +197,8 @@ void test_start_live_blocks()
 	      "start: 70002 rejected with server message");
 	const Parse::StartLive c101 = Parse::StartLiveEnvelope(json(R"({"code":-101,"message":"账号未登录"})"), "9");
 	check(c101.outcome == Parse::StartOutcome::Rejected, "start: -101 rejected");
-	const Parse::StartLive blocked_notice = Parse::StartLiveEnvelope(
-		json(R"({"code":70003,"message":"x","data":{"notice":{"msg":"封禁"}}})"), "9");
+	const Parse::StartLive blocked_notice =
+		Parse::StartLiveEnvelope(json(R"({"code":70003,"message":"x","data":{"notice":{"msg":"封禁"}}})"), "9");
 	check(blocked_notice.outcome == Parse::StartOutcome::Blocked, "start: notice on error = blocked (no retry)");
 }
 } // namespace

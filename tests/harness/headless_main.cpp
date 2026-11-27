@@ -83,8 +83,8 @@ void obs_frontend_open_source_properties(obs_source_t *source)
 	++g_properties_opens;
 	if (!g_console_source) {
 		g_console_source = source;
-		signal_handler_connect(obs_source_get_signal_handler(source), "update_properties",
-				       on_update_properties, nullptr);
+		signal_handler_connect(obs_source_get_signal_handler(source), "update_properties", on_update_properties,
+				       nullptr);
 	}
 	obs_properties_t *props = obs_source_properties(source);
 	obs_properties_destroy(props);
@@ -159,7 +159,9 @@ static void fire_event(enum obs_frontend_event event)
 // ---------------------------------------------------------------------------
 static void ui_task_handler(obs_task_t task, void *param, bool wait)
 {
-	auto run = [task, param]() { task(param); };
+	auto run = [task, param]() {
+		task(param);
+	};
 	if (QThread::currentThread() == qApp->thread()) {
 		run();
 		return;
@@ -394,9 +396,10 @@ static void seed_config(const std::string &config_dir, bool with_lines, bool doc
 			// 与 ConfigManager::save 同形:线路表是「存成字符串的 JSON 数组」(obs_data 没有数组值)。
 			? R"(,"stream_targets":"[{\"protocol\":\"rtmp\",\"provider\":\"txy\",\"addr\":\"rtmp://txy.live-push.bilivideo.com/live-bvc/\",\"key\":\"?streamname=live42&key=SEEDED\",\"backup\":false}]")"
 			: R"(,"stream_targets":"[]")";
-	write_file(config_dir + "/bilibili-stream-for-obs/config.json",
-		   R"({"room_id":"21452505","csrf_token":"csrf-fake-1234567890","mid":"42","title":"测试直播间","part_id":2,"area_id":86,"cookies":"SESSDATA=sess-fake-1234567890; bili_jct=csrf-fake-1234567890; DedeUserID=42; buvid3=BUVID3-seeded")"
-		   + lines + R"(,"dock_introduced":)" + (dock_introduced ? "true" : "false") + "}");
+	write_file(
+		config_dir + "/bilibili-stream-for-obs/config.json",
+		R"({"room_id":"21452505","csrf_token":"csrf-fake-1234567890","mid":"42","title":"测试直播间","part_id":2,"area_id":86,"cookies":"SESSDATA=sess-fake-1234567890; bili_jct=csrf-fake-1234567890; DedeUserID=42; buvid3=BUVID3-seeded")" +
+			lines + R"(,"dock_introduced":)" + (dock_introduced ? "true" : "false") + "}");
 }
 
 static std::string g_state_dir;
@@ -457,7 +460,8 @@ static void scenario_login_get_key_close()
 	check(wait_until([]() { return has_qr_image(); }, 10000), "login: QR image rendered in dock");
 	check(button(kBtnCancelLogin) != nullptr, "login: 取消登录 offered");
 	check(wait_logged_in(), "login: signed in after poll sequence");
-	check(label_has(kOffline) && label_has(kObsIdle) && label_has(kTitle), "login: room box shows offline/idle/title");
+	check(label_has(kOffline) && label_has(kObsIdle) && label_has(kTitle),
+	      "login: room box shows offline/idle/title");
 	const size_t getinfo = count_requests("GET", "/xlive/app-blink/v1/room/GetInfo");
 	check(getinfo == 1, "login: exactly one room/GetInfo per refresh (was 2)");
 	check(count_requests("GET", "/x/passport-login/web/sso/list") == 1, "login: sso list once, after login only");
@@ -484,11 +488,14 @@ static void scenario_login_get_key_close()
 		return Request();
 	}();
 	check(start.body.find("backup_stream=") == std::string::npos, "start: no backup params (privilege != 5)");
-	check(start.body.find("room_id=21452505") != std::string::npos && start.body.find("area_v2=86") != std::string::npos,
+	check(start.body.find("room_id=21452505") != std::string::npos &&
+		      start.body.find("area_v2=86") != std::string::npos,
 	      "start: room_id + server-synced area_v2");
 	check(start.body.find("type=1") != std::string::npos && start.body.find("checked=0") != std::string::npos &&
-		      start.body.find("platform=pc_link") != std::string::npos && start.body.find("build=11349") != std::string::npos &&
-		      start.body.find("version=8.16.0.11349") != std::string::npos && start.body.find("sign=") != std::string::npos,
+		      start.body.find("platform=pc_link") != std::string::npos &&
+		      start.body.find("build=11349") != std::string::npos &&
+		      start.body.find("version=8.16.0.11349") != std::string::npos &&
+		      start.body.find("sign=") != std::string::npos,
 	      "start: common params + sign present");
 	check(count_requests("GET", "/xlive/app-blink/v1/preLive/PreCheck") == 1, "start: PreCheck once");
 	// 线路不进日志(日志里只允许掩码)——由 run_headless.sh 检查 OBS 日志文件。
@@ -536,8 +543,7 @@ static void scenario_streaming_guard()
 	arm_dialog_click(kBtnOk);
 	click(kBtnStop);
 	check(wait_until([]() { return dialog_count() == 1; }, 5000), "guard: warning dialog shown");
-	check(!g_dialogs.empty() &&
-		      g_dialogs[0].buttons.size() == 1, // 只有「确定」,没有确认按钮
+	check(!g_dialogs.empty() && g_dialogs[0].buttons.size() == 1, // 只有「确定」,没有确认按钮
 	      "guard: warning has no confirm button");
 	pump(500);
 	check(count_requests("POST", "/room/v1/Room/stopLive") == 0, "guard: no stopLive while OBS streams");
@@ -558,10 +564,12 @@ static void scenario_recover()
 {
 	check(wait_until([]() { return label_has(kLive) && button(kBtnRecover) && button(kBtnRecover)->isEnabled(); }),
 	      "recover: live on server + 找回推流码 enabled");
-	check(button(kBtnStart) && !button(kBtnStart)->isEnabled(), "recover: 获取推流码 disabled while server is live");
+	check(button(kBtnStart) && !button(kBtnStart)->isEnabled(),
+	      "recover: 获取推流码 disabled while server is live");
 	click(kBtnRecover);
 	check(wait_until([]() { return line_has("RECOVERED") && label_has(kRecovered); }), "recover: line recovered");
-	check(count_requests("GET", "/live_stream/v1/StreamList/get_stream_by_roomId") == 1, "recover: primary source once");
+	check(count_requests("GET", "/live_stream/v1/StreamList/get_stream_by_roomId") == 1,
+	      "recover: primary source once");
 	check(count_requests("GET", "/xlive/app-blink/v1/live/GetUpStreamRtmp") == 0, "recover: fallback not needed");
 }
 
@@ -619,9 +627,11 @@ static void scenario_first_run_shows_dock()
 static void scenario_backup_fallback()
 {
 	check(wait_logged_in(), "backup: seeded session loaded");
-	check(wait_until([]() { return button(kBtnStart) && button(kBtnStart)->isEnabled(); }), "backup: start enabled");
+	check(wait_until([]() { return button(kBtnStart) && button(kBtnStart)->isEnabled(); }),
+	      "backup: start enabled");
 	click(kBtnStart);
-	check(wait_until([]() { return label_has(kBackupRejected) && line_has("K-RTMP"); }), "backup: fell back, lines shown");
+	check(wait_until([]() { return label_has(kBackupRejected) && line_has("K-RTMP"); }),
+	      "backup: fell back, lines shown");
 	const int starts = count_requests("POST", "/room/v1/Room/startLive");
 	check(starts == 2, "backup: exactly two startLive (backup attempt + fallback)");
 	check(count_requests("POST", "/room/v1/Room/startLive", "backup_stream=1") == 1 &&
@@ -640,7 +650,8 @@ static void scenario_partition_fail_no_loop()
 	check(button(kBtnSettings) != nullptr, "parts: 直播间设置… present");
 	click(kBtnSettings);
 	check(wait_until([]() { return g_properties_opens == 1; }, 5000), "parts: console panel opened");
-	check(wait_until([]() { return count_requests("GET", "/room/v1/Area/getList") == 1; }, 5000), "parts: one getList attempt");
+	check(wait_until([]() { return count_requests("GET", "/room/v1/Area/getList") == 1; }, 5000),
+	      "parts: one getList attempt");
 	pump(1500);
 	check(count_requests("GET", "/room/v1/Area/getList") == 1, "parts: failed load is not retried in a loop");
 	check(g_properties_rebuilds.load() <= 2, "parts: properties rebuilt at most twice (no rebuild loop)");
@@ -664,29 +675,31 @@ int main(int argc, char *argv[])
 	struct Scenario {
 		const char *name;
 		std::function<void()> run;
-		const char *script;      // 假服务端应答脚本
-		bool seed;               // 模块加载前写一份「上次正常退出」的 config.json
-		bool seed_lines;         // 种子里带线路表
-		bool dock_introduced;    // 种子里侧栏是否已做过首启显示
+		const char *script;   // 假服务端应答脚本
+		bool seed;            // 模块加载前写一份「上次正常退出」的 config.json
+		bool seed_lines;      // 种子里带线路表
+		bool dock_introduced; // 种子里侧栏是否已做过首启显示
 	};
 	const Scenario scenarios[] = {
-	    {"startup_logged_out", scenario_startup_logged_out, "", false, false, true},
-	    {"login_get_key_close", scenario_login_get_key_close, R"({"reset": true})", false, false, true},
-	    {"unload_while_login_polling", scenario_unload_while_login_polling, R"({"reset": true})", false, false, true},
-	    {"close_cancel", scenario_close_cancel, R"({"reset": true, "room_live": 1})", true, true, true},
-	    {"streaming_guard", scenario_streaming_guard, R"({"reset": true, "room_live": 1})", true, true, true},
-	    {"network_error_keeps_login", scenario_network_error_keeps_login, R"({"reset": true, "nav_code": -412})", true,
-	     false, true},
-	    {"recover", scenario_recover, R"({"reset": true, "room_live": 1})", true, false, true},
-	    {"stop_rejected", scenario_stop_rejected, R"({"reset": true, "room_live": 1, "stop_code": 60034})", true, true,
-	     true},
-	    {"exit_then_unload", scenario_exit_then_unload, R"({"reset": true})", true, false, true},
-	    {"first_run_shows_dock", scenario_first_run_shows_dock, R"({"reset": true})", true, false, false},
-	    {"backup_fallback", scenario_backup_fallback, R"({"reset": true, "visible_mode": 5, "start_codes": [70003]})",
-	     true, false, true},
-	    {"partition_fail_no_loop", scenario_partition_fail_no_loop, R"({"reset": true, "partition_fail": true})", true,
-	     false, true},
-	    {"stale_lines_cleared", scenario_stale_lines_cleared, R"({"reset": true, "room_live": 0})", true, true, true},
+		{"startup_logged_out", scenario_startup_logged_out, "", false, false, true},
+		{"login_get_key_close", scenario_login_get_key_close, R"({"reset": true})", false, false, true},
+		{"unload_while_login_polling", scenario_unload_while_login_polling, R"({"reset": true})", false, false,
+		 true},
+		{"close_cancel", scenario_close_cancel, R"({"reset": true, "room_live": 1})", true, true, true},
+		{"streaming_guard", scenario_streaming_guard, R"({"reset": true, "room_live": 1})", true, true, true},
+		{"network_error_keeps_login", scenario_network_error_keeps_login,
+		 R"({"reset": true, "nav_code": -412})", true, false, true},
+		{"recover", scenario_recover, R"({"reset": true, "room_live": 1})", true, false, true},
+		{"stop_rejected", scenario_stop_rejected, R"({"reset": true, "room_live": 1, "stop_code": 60034})",
+		 true, true, true},
+		{"exit_then_unload", scenario_exit_then_unload, R"({"reset": true})", true, false, true},
+		{"first_run_shows_dock", scenario_first_run_shows_dock, R"({"reset": true})", true, false, false},
+		{"backup_fallback", scenario_backup_fallback,
+		 R"({"reset": true, "visible_mode": 5, "start_codes": [70003]})", true, false, true},
+		{"partition_fail_no_loop", scenario_partition_fail_no_loop,
+		 R"({"reset": true, "partition_fail": true})", true, false, true},
+		{"stale_lines_cleared", scenario_stale_lines_cleared, R"({"reset": true, "room_live": 0})", true, true,
+		 true},
 	};
 	const Scenario *scenario = nullptr;
 	for (const Scenario &sc : scenarios)
@@ -730,8 +743,8 @@ int main(int argc, char *argv[])
 	obs_shutdown(); // → obs_module_unload + dlclose:worker 必须 join,侧栏/监听必须已摘
 	const qint64 teardown_ms = teardown.elapsed();
 	check(teardown_ms < 4000, "teardown: obs_shutdown returned promptly (" + std::to_string(teardown_ms) + " ms)");
-	std::printf("%s[%s]: %d passed, %d failed (scenario %lld ms, teardown %lld ms)\n",
-		    g_fail ? "FAILED" : "PASSED", g_scenario.c_str(), g_pass, g_fail,
-		    static_cast<long long>(scenario_timer.elapsed()), static_cast<long long>(teardown_ms));
+	std::printf("%s[%s]: %d passed, %d failed (scenario %lld ms, teardown %lld ms)\n", g_fail ? "FAILED" : "PASSED",
+		    g_scenario.c_str(), g_pass, g_fail, static_cast<long long>(scenario_timer.elapsed()),
+		    static_cast<long long>(teardown_ms));
 	return g_fail ? 1 : 0;
 }

@@ -20,7 +20,7 @@ struct Config {
 	std::string csrf_token; // bili_jct 的镜像(登录态刷新时回填)
 	std::string cookies;    // 持久化 Cookie 白名单镜像(SESSDATA/bili_jct/DedeUserID/buvid*)
 	std::string mid;
-	std::string title;      // 服务端标题镜像(room/GetInfo 每次刷新回填)
+	std::string title; // 服务端标题镜像(room/GetInfo 每次刷新回填)
 	// 分区:part_id = 分区大类(parent_id),area_id = 二级分区(= startLive 的 area_v2)。
 	// 初值 0 = 未知;登录后由 room/GetInfo 的 parent_id/area_v2_id 同步,控制台
 	// 「应用分区」成功后改写为用户选择。
@@ -60,7 +60,7 @@ public:
 	// 成功 = 返回 Ok,config.stream_targets 被全量线路覆盖。message 承载失败原因或
 	// 成功分支的提示(无备流资格 / 备流被拒已回退);face_qr / face_page 供 UI 展示。
 	static Parse::StartOutcome startLive(Config &config, const std::string &mid, std::string &message,
-					      std::string &face_qr, std::string &face_page);
+					     std::string &face_qr, std::string &face_page);
 	static bool stopLive(const Config &config, std::string &message);
 	// 播前改标题(§4.2 UpdatePreLiveInfo)与改分区(§4.3 AnchorChangeRoomArea)。
 	static bool updatePreLiveInfo(const Config &config, const std::string &title, std::string &message);

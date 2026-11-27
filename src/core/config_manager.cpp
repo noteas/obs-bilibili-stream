@@ -106,8 +106,8 @@ void ConfigManager::save()
 #ifndef _WIN32
 	// config.json 里有完整的登录会话(SESSDATA/bili_jct)与推流码:多用户机器上不能让
 	// 其他账号读到。obs_data_save_json 用默认 umask 创建文件,这里收紧到属主读写。
-	std::filesystem::permissions(configPath, std::filesystem::perms::owner_read |
-						 std::filesystem::perms::owner_write,
+	std::filesystem::permissions(configPath,
+				     std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
 				     std::filesystem::perm_options::replace, ec);
 #endif
 }

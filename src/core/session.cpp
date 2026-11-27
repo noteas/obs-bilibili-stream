@@ -20,7 +20,7 @@
 namespace Core {
 namespace {
 
-constexpr int kPollIntervalMs = 2000; // 官方 H5 固定 2000ms(契约 §2.2)
+constexpr int kPollIntervalMs = 2000;  // 官方 H5 固定 2000ms(契约 §2.2)
 constexpr int kPollAttemptsPerQr = 90; // 一张二维码 ≈ 3 分钟,之后必然 86038 ⇒ 换新
 
 std::string module_file(const char *name)
@@ -209,10 +209,9 @@ void Session::start()
 			// buvid3 是设备标识,日志里只留头尾便于对账。
 			const std::string b3 = Http::HttpClient::cookie_value("buvid3");
 			const std::string masked = b3.size() > 8 ? b3.substr(0, 4) + "..." + b3.substr(b3.size() - 4)
-							       : (b3.empty() ? "获取失败" : "...");
+								 : (b3.empty() ? "获取失败" : "...");
 			obs_log(LOG_INFO, "指纹: UA=%s | traceid=%s | buvid3=%s (%s)", Http::HttpClient::user_agent(),
-				Http::HttpClient::traceid().c_str(), masked.c_str(),
-				from_config ? "来自配置" : "新取");
+				Http::HttpClient::traceid().c_str(), masked.c_str(), from_config ? "来自配置" : "新取");
 		},
 		nullptr);
 
@@ -308,7 +307,8 @@ void Session::refresh(bool quiet)
 					// 30s:刚拿到线路时服务端的 live_status 可能还没翻到 1(最终一致)。
 					// m_lines_obtained_ms == 0 = 线路是上次运行留下的(从磁盘读回),没有宽限。
 					constexpr uint64_t kLinesGraceMs = 30000;
-					const uint64_t age_ms = os_gettime_ns() / 1000000ULL - session.m_lines_obtained_ms;
+					const uint64_t age_ms =
+						os_gettime_ns() / 1000000ULL - session.m_lines_obtained_ms;
 					if (res->room.live_status == 0 && !cfg.stream_targets.empty() &&
 					    (session.m_lines_obtained_ms == 0 || age_ms > kLinesGraceMs)) {
 						obs_log(LOG_INFO, "服务端未在播,清除上一场次的 %zu 条线路",
@@ -323,8 +323,8 @@ void Session::refresh(bool quiet)
 				session.m_config.save();
 				if (!quiet || session.m_room.stale) {
 					if (session.m_room.stale)
-						session.set_status(LOG_WARNING,
-								   Utils::Text("Status.RoomStale", res->message.c_str()));
+						session.set_status(LOG_WARNING, Utils::Text("Status.RoomStale",
+											    res->message.c_str()));
 					else
 						session.set_status(LOG_INFO, Utils::Text("Status.Refreshed"));
 				}
@@ -370,9 +370,9 @@ void Session::open_login_qr_externally()
 		return;
 	// 控制台面板渲染不了图片(ADR-0003):二维码写成 SVG 交系统浏览器。
 	const std::string svgPath = module_file("login_qr.svg");
-	const bool shown = (!svgPath.empty() && QrGenerator::writeSvgFile(svgPath, m_login.qr) &&
-			    openInBrowser(svgPath)) ||
-			   openInBrowser(m_login.qr);
+	const bool shown =
+		(!svgPath.empty() && QrGenerator::writeSvgFile(svgPath, m_login.qr) && openInBrowser(svgPath)) ||
+		openInBrowser(m_login.qr);
 	set_status(shown ? LOG_INFO : LOG_ERROR,
 		   shown ? Utils::Text("Login.QrOpened") : Utils::Text("Core.BrowserFail", m_login.qr.c_str()));
 	notify();
@@ -597,8 +597,8 @@ void Session::start_live()
 				obs_log(LOG_INFO, "播前状态 GetRoomPreLiveStatus: status=%d", preStatus);
 			else
 				obs_log(LOG_INFO, "播前状态获取失败(不阻断开播): %s", statusMessage.c_str());
-			res->outcome = Bili::BiliApi::startLive(res->cfg, mid, res->message, res->face_qr,
-								res->face_page);
+			res->outcome =
+				Bili::BiliApi::startLive(res->cfg, mid, res->message, res->face_qr, res->face_page);
 		},
 		ui_guarded([res]() {
 			auto &session = instance();
@@ -637,8 +637,7 @@ void Session::start_live()
 				if (session.m_login_qr_external && !res->face_qr.empty()) {
 					const std::string svgPath = module_file("face_qr.svg");
 					const bool shown =
-						(!svgPath.empty() &&
-						 QrGenerator::writeSvgFile(svgPath, res->face_qr) &&
+						(!svgPath.empty() && QrGenerator::writeSvgFile(svgPath, res->face_qr) &&
 						 openInBrowser(svgPath)) ||
 						openInBrowser(res->face_qr);
 					session.set_status(LOG_WARNING, shown ? Utils::Text("Start.FaceQrOpened")
@@ -678,8 +677,7 @@ void Session::stop_live()
 	};
 	auto res = std::make_shared<StopResult>();
 	Http::HttpClient::runAsync(
-		[cfg, res]() { res->ok = Bili::BiliApi::stopLive(cfg, res->message); },
-		ui_guarded([res]() {
+		[cfg, res]() { res->ok = Bili::BiliApi::stopLive(cfg, res->message); }, ui_guarded([res]() {
 			auto &session = instance();
 			session.end();
 			if (res->ok) {
@@ -741,8 +739,8 @@ void Session::recover()
 				return;
 			}
 			if (!canChange || urls.empty()) {
-				res->message = Utils::Text("Recover.NoAddr") +
-					       (upMessage.empty() ? "" : ": " + upMessage);
+				res->message =
+					Utils::Text("Recover.NoAddr") + (upMessage.empty() ? "" : ": " + upMessage);
 				return;
 			}
 			std::string local_key;
@@ -826,26 +824,29 @@ void Session::fetch_quality()
 						break;
 					}
 				}
-				res->lines = Utils::Text("Quality.Recommend", recommend, source.c_str(), default_bitrate) +
-					     "\n" +
-					     Utils::Text("Quality.Member",
-							 bc["recommend_bitrate_member_intervention"].bool_value()
-								 ? Utils::Text("Common.Yes").c_str()
-								 : Utils::Text("Common.No").c_str()) +
-					     "\n" + Utils::Text("Quality.Note");
+				res->lines =
+					Utils::Text("Quality.Recommend", recommend, source.c_str(), default_bitrate) +
+					"\n" +
+					Utils::Text("Quality.Member",
+						    bc["recommend_bitrate_member_intervention"].bool_value()
+							    ? Utils::Text("Common.Yes").c_str()
+							    : Utils::Text("Common.No").c_str()) +
+					"\n" + Utils::Text("Quality.Note");
 			} else {
 				res->lines = Utils::Text("Quality.Fail", message.c_str());
 			}
 			// 编码能力各自降级,不互相牵连。
 			bool canH265 = false, canAv1 = false;
 			if (Bili::BiliApi::canUseH265Encoder(canH265, message))
-				res->lines += "\n" + Utils::Text("Quality.H265", canH265 ? Utils::Text("Common.Is").c_str()
-											  : Utils::Text("Common.NoShort").c_str());
+				res->lines += "\n" + Utils::Text("Quality.H265",
+								 canH265 ? Utils::Text("Common.Is").c_str()
+									 : Utils::Text("Common.NoShort").c_str());
 			else
 				res->lines += "\n" + Utils::Text("Quality.H265Fail", message.c_str());
 			if (Bili::BiliApi::canUseAv1Encoder(canAv1, message))
-				res->lines += " | " + Utils::Text("Quality.Av1", canAv1 ? Utils::Text("Common.Is").c_str()
-											   : Utils::Text("Common.NoShort").c_str());
+				res->lines += " | " + Utils::Text("Quality.Av1",
+								  canAv1 ? Utils::Text("Common.Is").c_str()
+									 : Utils::Text("Common.NoShort").c_str());
 			else
 				res->lines += " | " + Utils::Text("Quality.Av1Fail", message.c_str());
 		},

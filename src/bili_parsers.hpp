@@ -45,11 +45,11 @@ LoginState LoginFromNav(const json11::Json &root, std::string &mid, std::string 
 
 // §4.1 startLive 信封的解析结果(F-180144bb0 第 1~12 步)。
 enum class StartOutcome {
-	Ok,          // 至少一条带 addr 的线路
-	NeedFaceQr,  // 60024(data.qr)或 code==0 且 need_face_auth
-	NeedFacePage, // 60043:auth-middle 网页
-	Blocked,     // notice 弹窗阻断 / risk_extra.v_voucher
-	Rejected,    // 其它 code!=0(message = 服务端原因)
+	Ok,            // 至少一条带 addr 的线路
+	NeedFaceQr,    // 60024(data.qr)或 code==0 且 need_face_auth
+	NeedFacePage,  // 60043:auth-middle 网页
+	Blocked,       // notice 弹窗阻断 / risk_extra.v_voucher
+	Rejected,      // 其它 code!=0(message = 服务端原因)
 	MissingFields, // code==0 但没有任何可用线路(官方 missing fields)
 };
 
@@ -68,8 +68,8 @@ struct StartLive {
 	std::string primary_key;
 	std::string face_qr;   // NeedFaceQr: 二维码原文
 	std::string face_page; // NeedFacePage: 认证页 URL(需 mid 拼接)
-	// Failure/blocked texts are localized (Utils::Text needs obs) in the BiliApi layer;
-	// this struct only carries raw data.   // 失败/阻断原因(给状态行);Ok 时为空
+			       // Failure/blocked texts are localized (Utils::Text needs obs) in the BiliApi layer;
+			       // this struct only carries raw data.   // 失败/阻断原因(给状态行);Ok 时为空
 };
 
 // root = startLive 信封,mid = 登录 mid(60043 页面参数)。

@@ -196,8 +196,7 @@ Bili::QrPoll BiliApi::qrLogin(const std::string &qr_key, std::string &message)
 	case 0:
 		break;
 	default:
-		obs_log(LOG_WARNING, "二维码轮询异常 code: %d, message: %s", code,
-			jsonErrorMessage(json).c_str());
+		obs_log(LOG_WARNING, "二维码轮询异常 code: %d, message: %s", code, jsonErrorMessage(json).c_str());
 		message = Utils::Text("Api.ApiError", code, jsonErrorMessage(json).c_str());
 		return QrPoll::Failed;
 	}
@@ -736,10 +735,12 @@ Parse::StartOutcome BiliApi::startLive(Config &config, const std::string &mid, s
 		// platform/build/version/ts arrive via the common injector clone.
 		// checked="0": 恒注 (itoa(0) 实证); type="1": custom-rtmp 配置默认关时恒注,
 		// 值 = '1'+UI 开播类型索引, 插件无类型选择 ⇒ 索引 0 (F-180141ed0)。
-		std::vector<std::pair<std::string, std::string>> start_params = {
-			{"room_id", config.room_id}, {"area_v2", std::to_string(config.area_id)},
-			{"checked", "0"},            {"type", "1"}};
-		std::string hint;        // 成功分支的提示(无备流资格)
+		std::vector<std::pair<std::string, std::string>> start_params = {{"room_id", config.room_id},
+										 {"area_v2",
+										  std::to_string(config.area_id)},
+										 {"checked", "0"},
+										 {"type", "1"}};
+		std::string hint;         // 成功分支的提示(无备流资格)
 		bool backup_sent = false; // 本次请求是否真的带了备流三参
 		if (with_backup) {
 			// E-22(2026-11-26,订正 E-19「官方恒带备流伴参」误判):官方开播分派
@@ -765,7 +766,8 @@ Parse::StartOutcome BiliApi::startLive(Config &config, const std::string &mid, s
 				obs_log(LOG_INFO,
 					"备流资格 GetVisibleMode: upower_privilege_type=%d visible_mode=%d guard_visible_type=%d"
 					"(官方仅 ==5 走备流 builder)",
-					privilege, vm["visible_mode"].int_value(), vm["guard_visible_type"].int_value());
+					privilege, vm["visible_mode"].int_value(),
+					vm["guard_visible_type"].int_value());
 				backup_gate = privilege == 5;
 				if (!backup_gate)
 					hint = Utils::Text("Api.NoBackupPriv", privilege);
@@ -829,8 +831,7 @@ Parse::StartOutcome BiliApi::startLive(Config &config, const std::string &mid, s
 			return Parse::StartOutcome::Rejected;
 		}
 		result = Parse::StartLiveEnvelope(json, mid);
-		obs_log(LOG_INFO, "startLive: %s, 线路 %zu 条", envelope_summary(json).c_str(),
-			result.targets.size());
+		obs_log(LOG_INFO, "startLive: %s, 线路 %zu 条", envelope_summary(json).c_str(), result.targets.size());
 		for (const auto &t : result.targets)
 			obs_log(LOG_INFO, "%s线路: protocol=%s provider=%s addr=%s", t.backup ? "备流" : "主",
 				t.protocol.c_str(), t.provider.c_str(), t.addr.c_str());
@@ -843,7 +844,8 @@ Parse::StartOutcome BiliApi::startLive(Config &config, const std::string &mid, s
 			if (backup_sent && !has_backup)
 				obs_log(LOG_WARNING, "请求了备流但响应无 protocols_backup 直连线路");
 			// 成功分支的 message 只承载提示(备流被拒已回退 > 无资格已按普通发送)。
-			message = !fallback_note.empty() ? Utils::Text("Api.BackupRejected", fallback_note.c_str()) : hint;
+			message = !fallback_note.empty() ? Utils::Text("Api.BackupRejected", fallback_note.c_str())
+							 : hint;
 			// 步骤10: 官方成功日志形态,推流码只记掩码。
 			obs_log(LOG_INFO, "开播成功: addr=%s key=%s", result.primary_addr.c_str(),
 				result.primary_key.empty() ? "(空)" : "****");
@@ -860,8 +862,7 @@ Parse::StartOutcome BiliApi::startLive(Config &config, const std::string &mid, s
 		// 只对「获取推流地址失败」两码回退(契约 §1.2 的备流分配失败码);未登录/风控/
 		// 其它业务拒绝重发一次普通开播没有意义,官方结果回调对 startLive 失败也不重试。
 		const bool address_allocation_failed = result.code == 70002 || result.code == 70003;
-		if (result.outcome == Parse::StartOutcome::Rejected && backup_sent &&
-		    address_allocation_failed) {
+		if (result.outcome == Parse::StartOutcome::Rejected && backup_sent && address_allocation_failed) {
 			fallback_note = std::to_string(result.code) + " " + result.server_message;
 			obs_log(LOG_WARNING, "备流开播失败(%s),回退普通开播", fallback_note.c_str());
 			continue;

@@ -242,10 +242,9 @@ static size_t headerCallback(char *buffer, size_t size, size_t nitems, void *use
 // Cookie 只发给 B站自有域名。jar 是域无关的(单会话、全键一副),而插件会跟随
 // 服务端下发的任意跳转(login ticket、sso[] 列表、get_following 的每一跳);不设防时
 // SESSDATA/bili_jct 会被原样带到任何目标主机。名单按「主机名后缀」匹配。
-static const char *const kCookieHostSuffixes[] = {".bilibili.com",   ".biligame.com", ".bilibili.tv",
-						  ".biliapi.net",    ".biliapi.com",  ".bilivideo.com",
-						  ".acgvideo.com",   ".b23.tv",       ".bilicdn1.com",
-						  ".hdslb.com"};
+static const char *const kCookieHostSuffixes[] = {".bilibili.com", ".biligame.com",  ".bilibili.tv",  ".biliapi.net",
+						  ".biliapi.com",  ".bilivideo.com", ".acgvideo.com", ".b23.tv",
+						  ".bilicdn1.com", ".hdslb.com"};
 
 static std::string lower_ascii(std::string s)
 {
@@ -279,7 +278,8 @@ static bool cookie_allowed_for_host(const std::string &host)
 		return false;
 	for (const char *suffix : kCookieHostSuffixes) {
 		const std::string tail = suffix + 1; // 去掉前导点,同时覆盖裸域与子域
-		if (host == tail || (host.size() > tail.size() && host.compare(host.size() - tail.size(), tail.size(), tail) == 0))
+		if (host == tail ||
+		    (host.size() > tail.size() && host.compare(host.size() - tail.size(), tail.size(), tail) == 0))
 			return true;
 	}
 	return false;

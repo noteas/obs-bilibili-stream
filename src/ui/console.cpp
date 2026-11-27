@@ -15,7 +15,7 @@
 #include "plugin_utils.hpp"
 
 #include "srt/srt_catalog.hpp" // kServiceEntryName
-#include "srt/srt_target.hpp" // IsSrtLine
+#include "srt/srt_target.hpp"  // IsSrtLine
 
 // All state below is touched from the OBS UI thread only. Runtime state lives
 // in Core::Session; this file keeps nothing but the console source handle, the
@@ -318,9 +318,8 @@ obs_properties_t *console_properties(void *data)
 	obs_data_set_default_int(settings, KEY_AREA, cfg.area_id);
 
 	// --- 登录状态(统一入口:扫码登录/刷新/房间) ---
-	std::string login_line = s.logged_in()
-					 ? Utils::Text("Status.LoggedIn") + " (mid=" + cfg.mid + ")"
-					 : Utils::Text("Status.NotLoggedIn");
+	std::string login_line = s.logged_in() ? Utils::Text("Status.LoggedIn") + " (mid=" + cfg.mid + ")"
+					       : Utils::Text("Status.NotLoggedIn");
 	int login_level = s.logged_in() ? LEVEL_INFO : LEVEL_WARNING;
 	if (room.stale) {
 		login_line += Utils::Text("Status.StaleSuffix", room.error.c_str());
@@ -348,9 +347,10 @@ obs_properties_t *console_properties(void *data)
 		std::string room_line = Utils::Text("Console.RoomLine", cfg.room_id.c_str(), cfg.title.c_str(),
 						    s.area_display().c_str());
 		if (room.known) {
-			room_line += Utils::Text("Live.Session", room.info.live_status == 1   ? Utils::Text("Live.IsLive")
-									 : room.info.live_status == 2 ? Utils::Text("Live.Rebroadcast")
-												      : Utils::Text("Live.Offline"));
+			room_line += Utils::Text("Live.Session", room.info.live_status == 1 ? Utils::Text("Live.IsLive")
+								 : room.info.live_status == 2
+									 ? Utils::Text("Live.Rebroadcast")
+									 : Utils::Text("Live.Offline"));
 			if (room.info.locked)
 				room_line += Utils::Text("Live.Locked");
 		}
@@ -420,7 +420,7 @@ obs_properties_t *console_properties(void *data)
 		// get_properties 读到的是已提交设置(滞后于对话框编辑),草稿由
 		// modified 回调实时同步,与 UpdateSettings 回填后的控件一致。
 		const int wantedPart = g_draft_part > 0 ? g_draft_part
-						       : static_cast<int>(obs_data_get_int(settings, KEY_PART));
+							: static_cast<int>(obs_data_get_int(settings, KEY_PART));
 		int shownPart = cfg.part_id;
 		for (const auto &item : partitions.array_items()) {
 			const int id = part_of_parent(item);
@@ -433,7 +433,7 @@ obs_properties_t *console_properties(void *data)
 
 		const json11::Json *parent = find_parent(partitions, shownPart);
 		const int wantedArea = g_draft_area > 0 ? g_draft_area
-						       : static_cast<int>(obs_data_get_int(settings, KEY_AREA));
+							: static_cast<int>(obs_data_get_int(settings, KEY_AREA));
 		int shownArea = cfg.area_id;
 		if (parent) {
 			for (const auto &area : (*parent)["list"].array_items()) {

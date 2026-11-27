@@ -31,8 +31,8 @@ bool QrGenerator::writeSvgFile(const std::string &path, const std::string &data)
 		for (int y = 0; y < size; ++y) {
 			for (int x = 0; x < size; ++x) {
 				if (qr.getModule(x, y)) {
-					out << "M" << (x + border) * scale << " " << (y + border) * scale << "h" << scale
-					    << "v" << scale << "h-" << scale << "z";
+					out << "M" << (x + border) * scale << " " << (y + border) * scale << "h"
+					    << scale << "v" << scale << "h-" << scale << "z";
 				}
 			}
 		}

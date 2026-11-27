@@ -6,15 +6,15 @@
 
 namespace Http {
 struct HttpResponse {
-		long status;
-		std::string data;
-		// Raw "k=v; k=v" capture of every Set-Cookie seen on this response
-		// (informational; the session jar is updated automatically).
-		std::string cookies;
-		// 3xx 响应时 libcurl 算出的绝对跳转目标(get()/post() 从不自动跟随)。
-		std::string redirect_url;
-		bool timeout = false;
-	};
+	long status;
+	std::string data;
+	// Raw "k=v; k=v" capture of every Set-Cookie seen on this response
+	// (informational; the session jar is updated automatically).
+	std::string cookies;
+	// 3xx 响应时 libcurl 算出的绝对跳转目标(get()/post() 从不自动跟随)。
+	std::string redirect_url;
+	bool timeout = false;
+};
 
 // Single egress for HTTP and for the request fingerprint: every request leaves
 // through get()/post() carrying the fixed LiveHime UA, the session

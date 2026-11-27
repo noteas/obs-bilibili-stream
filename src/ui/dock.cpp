@@ -64,7 +64,7 @@ QPointer<QWidget> g_root;          // 内容根控件(OBSDock 的子控件)
 QTimer *g_rebuild_timer = nullptr; // g_root 的子对象
 QTimer *g_refresh_timer = nullptr;
 QTimer *g_copy_hint_timer = nullptr;
-QPointer<QLabel> g_copy_hint;      // 当前内容里的「已复制」提示
+QPointer<QLabel> g_copy_hint; // 当前内容里的「已复制」提示
 bool g_event_added = false;
 std::string g_rendered_signature;
 
@@ -180,11 +180,12 @@ void add_row(QGridLayout *grid, int row, const char *name_key, QWidget *value)
 QPixmap qr_pixmap(const std::string &data, int target_px)
 {
 	try {
-		const qrcodegen::QrCode qr = qrcodegen::QrCode::encodeText(data.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+		const qrcodegen::QrCode qr =
+			qrcodegen::QrCode::encodeText(data.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
 		const int n = qr.getSize();
 		const int border = 2;
-		const qreal dpr = QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->devicePixelRatio()
-								  : 1.0;
+		const qreal dpr =
+			QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->devicePixelRatio() : 1.0;
 		const int scale = std::max(1, static_cast<int>(target_px * dpr) / (n + 2 * border));
 		const int size = (n + 2 * border) * scale;
 		QImage image(size, size, QImage::Format_RGB32);
@@ -376,17 +377,16 @@ QWidget *build_room_box(QWidget *parent)
 		add_row(grid, row++, "Dock.State", label);
 	}
 	{
-		QLabel *label = make_heading(s.obs_streaming() ? Utils::Text("Dock.Streaming")
-									      : Utils::Text("Dock.NotStreaming"),
-					     LOG_INFO);
+		QLabel *label = make_heading(
+			s.obs_streaming() ? Utils::Text("Dock.Streaming") : Utils::Text("Dock.NotStreaming"), LOG_INFO);
 		set_text_class(label, s.obs_streaming() ? "text-success" : "text-muted");
 		add_row(grid, row++, "Dock.Obs", label);
 	}
 	{
 		QLabel *label = make_value(room.fetched_at ? format_time(room.fetched_at) : std::string("-"));
 		// 陈旧快照:原因放 tooltip,状态行另有 WARNING。
-		label->setToolTip(QString::fromUtf8(room.stale ? Utils::Text("Status.RoomStale", room.error.c_str()).c_str()
-									       : ""));
+		label->setToolTip(QString::fromUtf8(
+			room.stale ? Utils::Text("Status.RoomStale", room.error.c_str()).c_str() : ""));
 		add_row(grid, row++, "Dock.Updated", label);
 	}
 	return box;
@@ -405,14 +405,16 @@ QWidget *build_lines_box(QWidget *parent)
 		grid->addWidget(make_heading(s.line_label(i), LOG_INFO), 0, 0, 1, 3);
 		grid->addWidget(make_caption(Utils::Text("Dock.Address")), 1, 0);
 		grid->addWidget(make_readonly_line(t.addr), 1, 1);
-		grid->addWidget(make_button("Btn.CopyAddr", [addr = t.addr] { copy_to_clipboard(addr, "Dock.Address"); },
-					    true),
+		grid->addWidget(make_button(
+					"Btn.CopyAddr", [addr = t.addr] { copy_to_clipboard(addr, "Dock.Address"); },
+					true),
 				1, 2);
 		if (!t.key.empty()) {
 			grid->addWidget(make_caption(Utils::Text("Dock.StreamKey")), 2, 0);
 			grid->addWidget(make_readonly_line(t.key), 2, 1);
-			grid->addWidget(make_button("Btn.CopyKey", [key = t.key] { copy_to_clipboard(key, "Dock.StreamKey"); },
-						    true),
+			grid->addWidget(make_button(
+						"Btn.CopyKey",
+						[key = t.key] { copy_to_clipboard(key, "Dock.StreamKey"); }, true),
 					2, 2);
 		}
 		boxLayout->addLayout(grid);
@@ -434,10 +436,10 @@ void confirm_and_stop()
 	if (s.obs_streaming()) {
 		text_key = "Stop.NeedStopStreamFirst";
 	}
-	QMessageBox box(QMessageBox::Warning, title, QString::fromUtf8(Utils::Text(text_key, s.config().room_id.c_str(),
-										   s.config().title.c_str())
-									       .c_str()),
-			QMessageBox::NoButton, dock);
+	QMessageBox box(
+		QMessageBox::Warning, title,
+		QString::fromUtf8(Utils::Text(text_key, s.config().room_id.c_str(), s.config().title.c_str()).c_str()),
+		QMessageBox::NoButton, dock);
 	box.setTextFormat(Qt::PlainText); // 房间标题来自服务端,不当富文本渲染
 	if (s.obs_streaming()) {
 		box.addButton(QString::fromUtf8(Utils::Text("Common.Ok").c_str()), QMessageBox::AcceptRole);
@@ -447,7 +449,7 @@ void confirm_and_stop()
 	QPushButton *yes = box.addButton(QString::fromUtf8(Utils::Text("Btn.StopLiveConfirm").c_str()),
 					 QMessageBox::DestructiveRole);
 	QPushButton *no = box.addButton(QString::fromUtf8(Utils::Text("Btn.Cancel").c_str()), QMessageBox::RejectRole);
-	box.setDefaultButton(no);   // 回车/Esc 默认都是「取消」:误触不会关掉正在直播的房间
+	box.setDefaultButton(no); // 回车/Esc 默认都是「取消」:误触不会关掉正在直播的房间
 	box.setEscapeButton(no);
 	box.exec();
 	if (box.clickedButton() == yes)
@@ -466,12 +468,13 @@ QLayout *build_actions()
 	if (!s.logged_in()) {
 		row1->addWidget(make_button("Btn.Login", [] { session().login(); }, !busy, "Tip.Login"));
 	} else {
-		row1->addWidget(make_button("Btn.StartLive", [] { session().start_live(); }, !busy && s.can_start_live(),
-					    "Tip.StartLive"));
-		row1->addWidget(make_button("Btn.StopLive", [] { confirm_and_stop(); }, !busy && s.can_stop_live(),
-					    "Tip.StopLive"));
-		row2->addWidget(make_button("Btn.Recover", [] { session().recover(); },
-					    !busy && !s.config().room_id.empty(), "Tip.Recover"));
+		row1->addWidget(make_button(
+			"Btn.StartLive", [] { session().start_live(); }, !busy && s.can_start_live(), "Tip.StartLive"));
+		row1->addWidget(make_button(
+			"Btn.StopLive", [] { confirm_and_stop(); }, !busy && s.can_stop_live(), "Tip.StopLive"));
+		row2->addWidget(make_button(
+			"Btn.Recover", [] { session().recover(); }, !busy && !s.config().room_id.empty(),
+			"Tip.Recover"));
 	}
 	row2->addWidget(make_button("Btn.Refresh", [] { session().refresh(false); }, !busy, "Tip.Refresh"));
 	box->addLayout(row1);

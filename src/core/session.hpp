@@ -104,16 +104,16 @@ public:
 	std::string area_display() const;
 
 	// --- 动作(立即返回;结果经 session_changed 通知) ---
-	void login();         // 扫码登录(二维码过期自动换新,直到成功/取消/卸载)
+	void login(); // 扫码登录(二维码过期自动换新,直到成功/取消/卸载)
 	void cancel_login();
 	void open_login_qr_externally(); // 在系统浏览器打开当前登录二维码
 	void refresh(bool quiet);        // quiet = 成功不改状态行(周期/动作后的对账刷新)
 	void tick();                     // 周期调用:条件满足时做一次 quiet 刷新
 	void apply_title(const std::string &title);
 	void apply_area(int part_id, int area_id);
-	void start_live();  // 「获取推流码」
-	void stop_live();   // 「关闭直播间」:调用方负责二次确认
-	void recover();     // 「找回推流码」:进行中场次取回推流地址/密钥
+	void start_live(); // 「获取推流码」
+	void stop_live();  // 「关闭直播间」:调用方负责二次确认
+	void recover();    // 「找回推流码」:进行中场次取回推流地址/密钥
 	void fetch_quality();
 	// UI 可复用状态行做轻提示(如「已复制」)。
 	void set_status(int level, const std::string &text);
