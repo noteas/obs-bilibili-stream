@@ -1,11 +1,12 @@
 ﻿{
     "dependencies": {
         "obs-studio": {
-            "version": "31.1.1",
+            "version": "32.2.0",
             "baseUrl": "https://github.com/obsproject/obs-studio/archive/refs/tags",
             "label": "OBS sources",
             "hashes": {
-                "windows-x64": "2c8427c10b55ac6d68008df2e9a3e82f4647aaad18f105e30d4713c2de678ccf"
+                "windows-x64": "246f6fb04065d787bce2aed35725f2442f60838aa2f9b044dc1a2383f6697b90",
+                "linux-x86_64": "246f6fb04065d787bce2aed35725f2442f60838aa2f9b044dc1a2383f6697b90"
             }
         },
         "prebuilt": {
@@ -20,7 +21,7 @@
     "platformConfig": {},
     "name": "bilibili-stream-for-obs",
     "displayName": "BILIBILI Stream for OBS",
-    "version": "3.0.2",
+    "version": "3.1.0",
     "author": "Zaros",
     "website": "None",
     "email": "kuzidiaolewc@outlook.com"

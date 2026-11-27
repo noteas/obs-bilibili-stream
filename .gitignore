@@ -2,6 +2,7 @@
 /*
 
 # Except for default project files
+!/third_party
 !/AGENTS.md
 !/GLOSSARY.md
 !/docs
@@ -10,6 +11,7 @@
 !/cmake
 !/data
 !/src
+!/tests
 !.clang-format
 !.gersemirc
 !.gitignore
@@ -21,6 +23,7 @@
 !flathub.json
 !LICENSE
 !README.md
+!README_en.md
 
 # Exclude lock files
 *.lock.json
@@ -31,3 +34,6 @@
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
 re/
+
+# CI/本地仿真:钉死 OBS 源码头面(cmake/linux/buildspec.cmake 解包目标)
+.deps/

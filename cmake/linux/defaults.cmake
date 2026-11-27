@@ -32,6 +32,7 @@ set(
   \\.github/
   \\.gitignore
   \\.ccache/
+  \\.deps/
   build_.*
   cmake/\\.CMakeBuildNumber
   release/
@@ -42,6 +43,12 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSIO
 set(CPACK_ARCHIVE_THREADS 0)
 
 include(CPack)
+
+# CI 专用:按 buildspec 钉死的 OBS 源码头编译(机制与论证见 cmake/linux/buildspec.cmake);
+# 链接面仍来自系统 libobs cmake 包。本地开发不进入本模块,行为不变。
+if(DEFINED ENV{CI})
+  include(buildspec)
+endif()
 
 find_package(libobs QUIET)
 

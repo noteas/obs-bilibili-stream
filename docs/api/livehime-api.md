@@ -611,6 +611,115 @@ bind: 仅 `message`。
 
 ### 证据: E-10 @0x112d502、@0x1125147、@0x1123e61;URL E-05。仓库 ❌(C3/C6)。
 
+## 4.6 推流输出协议矩阵(客户端行为,非端点)
+
+> 2026-11-27 固化(E-23)。官方不是"把地址交给 OBS",而是按 `protocols[].protocol` 选择不同
+> obs_output;地址 scheme(`rtmp://`/`rtmpsrt://`/`bmtsrt://`/`https://`)是线路标签与遥测分类。
+
+### 分派(F-181aefef0)
+
+| `protocol` | 官方输出 | 附加设置 |
+|---|---|---|
+| `srt` | `bvc_srt_output`(外挂 `plugins\bvc-srt-stream.dll`,加载清单 F-1812de510) | `srt_max_bandwidth`/`srt_recv_timeout_sec` 等 |
+| `bmtsrt` | `bmt_output` | `bmt_data_link="srt.naked"`(SRT 当裸链路) |
+| `bmt` | `bmt_output` | `bmt_data_link` 默认值 |
+| `quic` | `rtmp_output` | `tunnel_name="quic"`(仅直播姬 fork 的 OBS 识别) |
+| 其余(`rtmp`) | `rtmp_output` | — |
+
+### scheme 语义
+
+- **`<proto>srt://` = `<proto> over SRT`**:`bmtsrt` 实锤为 BMT over SRT(SRT 仅作链路层);
+  同族 `rtmpsrt://` = **RTMP(FLV) 载荷 over SRT(UDP) 传输**,不是 MPEG-TS over SRT。
+- SRT 传输是真的:内嵌 libsrt(`srt::LiveCC/FileCC/CUDTException`),有
+  `srt_max_bandwidth`/`srt_recv_timeout_sec` 与 `srt_lost_pkts/rettans_pkts/rtt_time` 统计。
+- 官方按 scheme 打 `streaming_type` 标签上报:`rtmpsrt`=1、`rtmp`=2、https+bmt=3、
+  https+whip=4、`bmtsrt`=5;地址表 `[tps_oc] rtmpsrt_urls_[`/`rtmp_urls_[`,回退日志把前者称
+  SRT(`user selected SRT…`)。
+
+### OBS 侧的真相:静默降级为 RTMP/TCP
+
+OBS 上游**不认识** `rtmpsrt://`,但也不报错:
+
+1. `plugins/rtmp-services/rtmp-custom.c` 只识别 `rtmps://`/`srt://`/`rist://` 前缀,
+   `rtmpsrt://` 归为 `"RTMP"`;
+2. `frontend/utility/BasicOutputHandler.cpp` 据此选 `rtmp_output`;
+3. OBS vendored librtmp `RTMP_ParseURL()` 只认长度 4/5/6 的 scheme,长度 7 的 `rtmpsrt`
+   走 `else` → `Unknown protocol!` + `goto parsehost`,protocol 保持 `RTMP_PROTOCOL_RTMP`;
+4. `RTMP_SetupURL()` 端口 0 且非 SSL/HTTP → **1935**;`tcUrl` 仍为原始 `rtmpsrt://…`
+   (B站 edge 接受)。
+
+⇒ 在 OBS 里填 `rtmpsrt://` 等价于填 `rtmp://host:1935/…`:走 TCP RTMP,**不启用 SRT**。
+社区"把 rtmpsrt 改成 rtmp"的补丁与"握手 reset"归因不适用于 OBS,不必照抄。
+
+### 互操作边界
+
+- 标准 SRT = MPEG-TS over SRT(OBS 原生 SRT 输出/`ffmpeg_mpegts_muxer`);
+  B站私有 SRT = RTMP/FLV over SRT。**两者不互通**。
+- 同一 host:1935 同时接受 TCP RTMP,所以 OBS 降级可用;该入口不是 SRT-only。
+- 插件现状:RTMP 线路仍只展示,不驱动输出(ADR-0005);SRT 线路在用户于 OBS
+  「设置→直播」显式选择服务「Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT」(插件无条件
+  合并进 rtmp-services 服务目录,ADR-0007)后,由本插件的 `bvc_srt_output` 推
+  RTMP-over-SRT;服务器与推流码均由用户手动选择/粘贴,插件不写用户推流配置。
+- 若要做私有 SRT 输出:需自实现 RTMP-over-SRT(ADR-0006/U-SRT),不能复用 OBS 原生 SRT,
+  也不能复用闭源 `bvc-srt-stream.dll`(Windows PE)。
+
+### 私有 SRT 封装逐项钉死(E-24,2026-11-27)
+
+> 对象 `bvc-srt-stream.dll`(md5 `b4735b81…`)。结论:**librtmp fork + SRT 只替换 socket 层**,
+> 无私有帧头、无 streamid、无加密。
+
+| 项 | 事实 |
+|---|---|
+| UDP 端口 | **1935**(`rtmpsrt://host/app` 不带端口时的 librtmp 默认值;与 TCP 同号) |
+| SRT streamid | **不设置**(无 `SRTO_STREAMID` 调用,无 `#!::` 字面量) |
+| 载荷 | 完整 RTMP:C0/C1/C2 握手 + AMF `connect/releaseStream/FCPublish/createStream/publish` + FLV tag 走 RTMP chunk;**不是**裸 FLV |
+| 鉴权 | 全在 RTMP URL(service 的 server URL + stream key,`?streamname=…&key=…`);SRT 层无密码 |
+| tcUrl | 原 URL 前缀(`rtmpsrt://host/app`,保留 scheme;edge 接受) |
+| 依赖 | 静态链 `libsrt 1.4.4`;`srt_send` 单次 ≤1376 B,`srt_recv` 字节流;关闭前发 `deleteStream` 再 `srt_close` |
+
+SRT 参数(全部硬编码,只有 maxbw/recvtimeo 来自 settings):
+
+```text
+TRANSTYPE=SRTT_LIVE, CONNTIMEO=10000ms, PAYLOADSIZE=1456, LATENCY=200ms,
+TSBPDMODE=0(关), TLPKTDROP=0(关), MAXBW=2MiB/s(可覆盖), LINGER=1s,
+RCVTIMEO=clamp(srt_recv_timeout_sec,3,60)*1000ms(key 缺省为 0/阻塞)
+```
+
+- `srt_max_bandwidth`(B/s)= `(视频kbps+音频kbps) × 1.03 × 1.5 × 1024 × 0.125`(≈1.58× 实际字节率),
+  由 `bililive.dll` 开播时写入;`srt_recv_timeout_sec` 来自直播姬内部配置。
+- 输出注册:`id="bvc_srt_output"`、`flags=0x1f`、`protocols="RTMP"`、
+  `encoded_video_codecs="h264;hevc;av1"`、`encoded_audio_codecs="aac"`。
+- **TSBPD 关闭**意味着 SRT 只提供 ARQ/重传的可靠 UDP 通道,不做时间戳投递延迟——
+  实现时照抄该组合才能与官方行为一致。
+- 详见 E-24(`re/evidence/24-bvc-srt-private-protocol.md`)。
+
+### 本插件实现(ADR-0007)
+
+- **不接管「自定义」**:OBS 的 `rtmp_custom_get_protocol()` 对未知 scheme 一律返回 `"RTMP"`,
+  前端固定选 `rtmp_output`;插件无法拦截。
+- 插件注册 `bvc_srt_output`(`protocols="bvc_srt"`),并把
+  `"Bilibili Live - RTMPSRT | 哔哩哔哩直播 - RTMPSRT"` 条目合并进 rtmp-services 的**用户级**
+  `plugin_config/rtmp-services/services.json`(OBS 原生表 + 本条目)。用户在
+  「设置→直播」选中它后,`GetStreamOutputType` 走第三方协议分支 → `bvc_srt_output`。
+- H.264 + AAC 走官方 track0 legacy tag 口径(E-25)。libsrt 1.5.x 适配:单次
+  `srt_send` ≤1316B、`srt_recv` 先收进 ≥1316B 缓冲再分发(LiveCC 限制)、
+  `SRTO_LINGER` 用 `struct linger`。
+- **HEVC/AV1 是插件自有扩展,非官方直播姬行为(E-26 §3)**:官方 `bvc-srt-stream.dll`
+  只承载 H.264/AAC(视频支只写 legacy codecID 7,全二进制无 hvc1/av01 FourCC),官方
+  HEVC/AV1 走 BMT 引擎。插件按**上游 OBS 32.2 `flv_packet_ex` 族**的 Enhanced-RTMP
+  口径(用户实测 OBS 以此向 B站 RTMP 推 HEVC/AV1 服务端接受)做 best-effort 兼容:
+  FourCC `hvc1`/`av01`,SEQ_START 0x90 / FRAMES 0x91·0xA1 / FRAMESX 0x93·0xA3
+  (HEVC dts==pts 省 CT)/ SEQ_END 0xA2 / HDR colorInfo 0x84;AV1+HDR 拒开(上游同款)。
+  能否工作以真机实测判定;官方声明的 `encoded_video_codecs="h264;hevc;av1"` 与之一致。
+
+### 证据
+
+E-23(`re/evidence/23-srt-rtmpsrt.md`)、E-24(`re/evidence/24-bvc-srt-private-protocol.md`);
+F-181aefef0(输出分派)、F-1812de510(插件清单);
+字符串簇 `bvc_srt_output`/`bvc-srt-stream.dll`/`bmt_data_link`/`srt.naked`/`srt_*`;
+5 处内联 `0x3a747273706d7472`(`rtmpsrt:`)与 `streaming_type:1..5`。
+OBS 侧文件见上(上游 master,2026-11-27 核对)。
+
 ---
 
 # 5. 推流
@@ -618,6 +727,10 @@ bind: 仅 `message`。
 ## 5.1 主路(与本插件同机制)
 
 `startLive` 所得 `addr+key` → RTMP 输出(libobs)。官方内置 OBS(obs_proxy), 仓库交用户 OBS。**等价** ✅。
+
+> 2026-11-27 补充(§4.6/E-23):"等价"仅对 `protocol=rtmp` 的 TCP 线路成立。`protocol=srt`
+> 的线路地址为 `rtmpsrt://`(官方走私有 RTMP-over-SRT);OBS 会把它静默降级成同一
+> host:1935 的 TCP RTMP,行为上仍可推,但**并未使用 SRT**。
 
 ## 5.2 GetUpStreamConfig
 
@@ -815,7 +928,8 @@ GET https://api.live.bilibili.com/xlive/app-blink/v1/live/GetUpStreamRtmp?room_i
 
 | # | 未定 | 出现处 |
 |---|---|---|
-| U1 | `protocols[].protocol` 取值集(除 `"rtmp"` 实证) | §4.1 |
+| U1 | ~~`protocols[].protocol` 取值集~~ | §4.1。🟢 **已解除(2026-11-27, E-23)**:实测取值 `bmtsrt,bmt,srt,rtmp`;scheme 语义与输出分派(`srt`→`bvc_srt_output`、`bmtsrt`→`bmt_output`+`srt.naked`、`rtmpsrt`=RTMP over SRT、OBS 静默降级)见 §4.6。剩余的 `bvc-srt-stream.dll` 私有封装拆为 U-SRT |
+| U-SRT | ~~`bvc-srt-stream.dll` 私有 SRT 封装~~ | §4.6/M4。🟢 **已解除(2026-11-27, E-24)**:UDP **1935**、**无 streamid**、载荷=完整 RTMP(握手+chunk 内 FLV tag)、鉴权走 RTMP URL、SRT 参数硬编码(`TSBPD/TLPKTDROP=off`、`CONNTIMEO=10s`、`PAYLOADSIZE=1456`、`LATENCY=200ms`、`MAXBW=2MiB/s`、`LINGER=1s`)、`libsrt 1.4.4`。证据 `re/evidence/24-bvc-srt-private-protocol.md` |
 | U6 | ~~备流 `backup_stream_type`/`stream_biz` 取值~~ | §4.1。🟢 **闭合(2026-11-26, E-19)**:`RequestStartLive`(`bililive.dll` 入口 `0x180d603a0`)尾部 **14 实参 vcall 固定路由到 service vtable 槽 `0x68`(slot13)=F-180146070 备流/多路 builder**(14 实参几何上排除 12 参的标准 builder 槽 `0x70`=F-180141ed0);官方恒传 `param_8=1, param_9=2, param_10="Paylive"`(教室房 `"ClassRoom"`) ⇒ 实网 URL **恒带** `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`。证据 `re/evidence/19-u6-g1-closed.md`。**仓库已对齐(2026-11-26)**:备流请求默认恒注两参,探针退化为覆盖通道;70003 是否因缺参触发待实网复验 |
 | U-QS | `GetQualityData` 的 `streamName`/`key` 取值构造 | §5.3 |
 | U3 | ARTC/WHIP SDP/ICE 流程 | §5.8 |

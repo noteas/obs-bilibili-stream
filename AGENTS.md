@@ -12,6 +12,7 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 - `src/http_client.*` — libcurl 传输 + cookie jar;请求头/指纹的唯一出口
 - `src/plugin-main.cpp`、`src/ui/` — OBS 原生 UI:工具菜单 + 隐藏私有 source「控制台」的 obs_properties(OBS 自己渲染,插件运行期只依赖 libobs/obs-frontend-api/libcurl,见 ADR-0003)
 - `src/md5`、`src/json11`、`src/qrcodegen` — vendored,保持不动
+- `third_party/obs-rtmp-srt` — git submodule,own fork(基线 = 上游 OBS 32.2.0 的 `librtmp` + `rtmp-stream`/`flv-mux` 逐字导入)。rtmpsrt 重实现的载体:**RTMP/FLV/AMF 逻辑零改动,只在 socket 层加 SRT 分支**,SRT 改造全部落在本 fork、不在主仓手搓协议(见 ADR-0008、E-27)
 - `docs/api/livehime-api.md` — **端点契约**:增/改任何请求参数、请求头、响应字段前必读,那里有每个字段的注入条件与官方解析顺序;契约里没有的字段 = 先补逆向再实现,不许猜
 - `docs/roadmap.md` — 里程碑与缺口状态;每个里程碑收尾必须同步它
 - `docs/adr/` — 架构决策。提出与任一 ADR 相左的方案前先读对应 ADR
@@ -46,6 +47,8 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 - 未定项在动码前先确认
 - 真实开播类调用(startLive/stopLive/恢复)**仅在用户在场并明确同意时**发起;平时验证 = 离线解析测试 + dry-run 日志
 - 每项独立改动原子提交;文档、注释时刻与代码同步
+- **跨平台原则**:主仓与 `third_party/` fork 的全部 C/C++ 在 Linux(主开发平台)与 Windows(MSVC,官方 OBS 构建链)都必须可编译、可测试;平台差异(套接字 API、线程句柄、printf 格式符、动态库导出等)只隔离在薄的编译期分支层,主体逻辑禁止平台专有写法;libsrt 等第三方依赖在两端都要有对应链接路径(Windows 官方 OBS 自带 srt.dll)。拿不准写法时,照 OBS 上游同场景的可移植写法
+- **零警告原则**:Release/Debug 构建与全部测试一律 **0 警告**;新代码与被打补丁的上游代码都不许新增警告,更禁止用抑制警告的编译选项掩盖问题;第三方 fork 上游文件自带的警告不强制清理(保持 diff 最小),但必须确认无害
 
 ## 构建
 
@@ -55,4 +58,4 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 ## 安装，运行
 
-将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，OBS将自动加载。
+将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，并将 `data/locale/` 放在 `~/.config/obs-studio/plugins/bilibili-stream-for-obs/data/locale/`（界面文案 i18n 必需，缺了 obs_module_text 只回显键名），OBS将自动加载。

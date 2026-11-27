@@ -40,6 +40,30 @@ _Avoid_: 备选地址、切换式(把备流当成同 key 的备用地址是错�
 **推流目标(StreamTarget)**:
 一个可推的 {protocol, addr, new_link, provider, key} 组合,是 startLive 响应、恢复响应与线路展示之间的统一中间模型。
 
+### 传输协议
+
+**RTMP over SRT(私有 SRT / `rtmpsrt://`)**:
+B站 `protocols[]` 中 `protocol=srt` 线路的实际封装:RTMP/FLV 载荷跑在 SRT(UDP) 传输上,
+地址 scheme 为 `rtmpsrt://`,官方客户端用 `bvc_srt_output`(`bvc-srt-stream.dll`)推流;
+同族 `bmtsrt` = BMT over SRT。传输是**真 SRT**(ARQ/重传/RTT),但载荷不是 MPEG-TS。
+固定口径(E-24):UDP **1935**、**无 SRT streamid**、SRT 参数 `TSBPD`/`TLPKTDROP` 关闭、
+`CONNTIMEO=10s`、`PAYLOADSIZE=1456`、`LATENCY=200ms`、`MAXBW=2MiB/s`、`LINGER=1s`;
+隧道里是完整 RTMP 握手 + chunk,无私有帧头、无加密。
+_Avoid_: 增强 RTMP(E-RTMP 是 `rtmp://` 下的 codec 扩展,不是本协议)、裸称 SRT(会与标准 SRT 混淆)
+
+**标准 SRT**:
+业界默认的 MPEG-TS over SRT(FFmpeg `srt://` + mpegts muxer;OBS 原生 SRT 输出即此)。
+与 B站私有 SRT **不互通**。
+
+**私有 SRT 服务条目**:
+OBS `rtmp-services` 服务目录(`plugin_config/rtmp-services/services.json`)里的一条
+`protocol="bvc_srt"` 条目,由插件在 OBS 原生服务表基础上合并;用户在「设置→直播」选中它时,
+OBS 用本插件的 `bvc_srt_output` 推 RTMP-over-SRT。插件不写用户已选服务/编码/输出配置。
+
+**SRT 降级**:
+OBS 对未知 scheme `rtmpsrt://` 的处理:librtmp 按 scheme 长度判定失败后回落为
+`rtmp://host:1935`(TCP RTMP),不启用 SRT。因此在 OBS 里 `rtmpsrt://` 与 `rtmp://` 行为等价。
+
 ### UI 与集成
 
 **控制台**:

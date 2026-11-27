@@ -7,8 +7,59 @@ build-extension: true
 separate-locales: false
 build-options:
   prefix: /app/plugins/BilibiliStream
+  strip: true
+
+# M4 起 fork 的 RTMP-over-SRT 栈编译期需要 libsrt 与 mbedTLS 头文件。OBS 运行时
+# (com.obsproject.Studio) 自带这两个库的 .so(srt v1.4.4 / mbedtls v2.27.0),但其
+# manifest 用 cleanup 删掉了 /include ⇒ 沙箱里只有库没有头。下面两个模块用与运行时
+# 完全相同的 tag/commit 各建一份(SONAME 一致),仅供插件编译链接用;打包阶段经顶层
+# cleanup 从扩展中剥离 .so,运行期 DT_NEEDED 由运行时自带的同名库满足,扩展不重复带库。
+cleanup:
+  - /lib/libsrt.so*
+  - /lib/libmbed*.so*
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /include/srt
+  - /include/mbedtls
 
 modules:
+  - name: mbedtls
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      # 运行时同款 tag 是老项目(cmake_minimum_required < 3.5),SDK 25.08 的
+      # CMake 4.x 会直接拒绝 ⇒ 策略下限抬到 3.5(仅影响 policy,不动构建)。
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      - -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+      - -DUSE_SHARED_MBEDTLS_LIBRARY=ON
+      - -DUSE_STATIC_MBEDTLS_LIBRARY=OFF
+      - -DENABLE_TESTING=OFF
+      - -DENABLE_PROGRAMS=OFF
+    sources:
+      - type: git
+        url: https://github.com/ARMmbed/mbedtls.git
+        tag: v2.27.0
+        commit: f71e2878084126737cc39083e1e15afc459bd93d
+
+  - name: srt
+    buildsystem: cmake-ninja
+    config-opts:
+      # 同 mbedtls:CMake 4.x 对老项目的 policy 下限抬升
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      # srt 的老式 GNUInstallDirs 用法在 flatpak 工具链下读出空 BINDIR,
+      # 其 install(PROGRAMS scripts/srt-ffplay DESTINATION ${CMAKE_INSTALL_BINDIR})
+      # 在 CMake 4 被判 "no DESTINATION" ⇒ 显式给值
+      - -DCMAKE_INSTALL_BINDIR=bin
+      - -DENABLE_STATIC=OFF
+      - -DENABLE_APPS=OFF
+      - -DENABLE_LOGGING=OFF
+    sources:
+      - type: git
+        url: https://github.com/Haivision/srt.git
+        tag: v1.4.4
+        commit: 8b32f3734ff6af7cc7b0fef272591cb80a2d1aae
+
   - name: bilibili-stream-for-obs
     buildsystem: cmake-ninja
     builddir: true
@@ -16,6 +67,10 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_FRONTEND_API=ON
+      # 离线回归测试在 ubuntu/windows 原生 CI 跑;沙箱里测试可执行文件链接的是
+      # 运行时 /app/lib/libobs.so.30,其传递依赖(libavcodec→libvpx/libjxl/svt、
+      # libavutil→GLIBC_2.44 符号)在 SDK 链接器里无法满足,必挂(2026-11-27 CI)。
+      - -DBUILD_TESTS=OFF
     sources:
       - type: dir
         path: .

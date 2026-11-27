@@ -56,10 +56,18 @@ runs:
         echo "/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin" >> $GITHUB_PATH
         brew update --quiet
         brew install --quiet zsh
+        # Ubuntu 链接面 = 发行版 libobs-dev(符号子集齐全即可链;头面由
+        # cmake/linux/buildspec.cmake 钉死覆盖,真 32.2 ABI 门槛在 flatpak
+        # job=flathub OBS 运行时)+ fork 的编译依赖(srt/mbedtls/jansson)。
         sudo apt-get update
         sudo apt-get install -y \
           libcurl4-openssl-dev \
           libobs-dev \
+          libsrt-gnutls-dev \
+          libmbedtls-dev \
+          libjansson-dev \
+          libsimde-dev \
+          zlib1g-dev \
           cmake \
           build-essential \
           ccache

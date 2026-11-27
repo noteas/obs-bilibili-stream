@@ -7,7 +7,7 @@ namespace Bili {
 namespace {
 const std::string APP_KEY = "aae92bc66f3edfab";
 const std::string APP_SECRET = "af125a0d5279fd576c1b4418a3e8276d";
-}
+} // namespace
 
 struct Config {
 	std::string room_id;
@@ -46,7 +46,9 @@ public:
 	static bool getQrCode(std::string &qr_data, std::string &qr_key, std::string &message);
 	// Success = login cookies landed in the session jar (Set-Cookie merge or
 	// the URL-query fallback), not a returned cookie string.
-	static bool qrLogin(const std::string &qr_key, std::string &message);
+	// expired(可选)回带「二维码已失效(86038)」判据;调用方不要按 message 文本嗅探
+	// (文案随 UI 语言变化)。
+	static bool qrLogin(const std::string &qr_key, std::string &message, bool *expired = nullptr);
 	static bool checkLoginStatus(std::string &message, std::string &mid);
 	// Room bootstrap. app-blink room/GetInfo?uId=<mid> (§3.3; parser
 	// F-1802b3690 reads data.room_id, proven). 官方端点失败即失败——旧 Web
@@ -119,8 +121,8 @@ public:
 	static json11::Json getVisibleMode(std::string &message);
 	// §7.2 GetUpStreamRtmp (F-18014d920): ReconnectLiveInfo{can_change, urls[],
 	// message}. 恢复推流前的可推地址查询(配套 §3.1 live_status 判在播)。
-	static bool getUpStreamRtmp(const std::string &room_id, bool &can_change,
-				    std::vector<std::string> &urls, std::string &message);
+	static bool getUpStreamRtmp(const std::string &room_id, bool &can_change, std::vector<std::string> &urls,
+				    std::string &message);
 	// §5.4 GetUpStreamVideoQualityConfig (视频码率口径): GET, 管线例外——sign 只覆盖
 	// 公共参数,bitrate_intervention="1" 在 sign 后注入 (F-1802d40f0)。顶层带
 	// recommend_bitrate/strategy_source + data.bitrate_config{default_bitrate,
