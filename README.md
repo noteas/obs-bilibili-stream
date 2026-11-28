@@ -33,9 +33,9 @@
 ### Ubuntu/Debian(用户插件目录 zip)
 
 1.  **下载插件**：从 [Releases 页面](https://github.com/Zarosmm/obs-bilibili-stream/releases) 下载最新的用户插件目录 zip(例如 `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.zip`)。
-2.  **解压即装**：解压到用户插件目录,得到 `bin/64bit/bilibili-stream-for-obs.so` 与 `data/locale/`：
+2.  **解压即装**：zip 顶层即插件名目录,直接解压到用户插件目录,得到 `bilibili-stream-for-obs/bin/64bit/bilibili-stream-for-obs.so` 与 `.../data/locale/`：
     ```bash
-    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
+    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/
     ```
 3.  **运行库**：私有 SRT 输出需要 `libsrt1.5-gnutls`(Debian/Ubuntu:`sudo apt install libsrt1.5-gnutls`);侧栏用的 Qt6 是 OBS 的运行依赖(Windows/macOS 随 OBS 打包,Linux 由发行版随 OBS 装上),无需另装。
 4.  **启动 OBS**：重新启动 OBS Studio,插件将自动加载。

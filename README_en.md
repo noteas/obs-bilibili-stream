@@ -26,9 +26,9 @@ A plugin for OBS Studio that simplifies the streaming process on Bilibili platfo
 ### Ubuntu/Debian (user plugin directory zip)
 
 1.  **Download plugin**: Download the latest user-plugin-directory zip from the [Releases page](https://github.com/Zarosmm/obs-bilibili-stream/releases) (e.g. `bilibili-stream-for-obs-*-x86_64-ubuntu-24.04.zip`).
-2.  **Unzip to install**: extract into the per-user plugin directory so you get `bin/64bit/bilibili-stream-for-obs.so` and `data/locale/`:
+2.  **Unzip to install**: the zip's top level is the plugin-name directory; extract it straight into the per-user plugin directory to get `bilibili-stream-for-obs/bin/64bit/bilibili-stream-for-obs.so` and `.../data/locale/`:
     ```bash
-    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
+    unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/
     ```
 3.  **Runtime library**: the private SRT output needs `libsrt1.5-gnutls` (Debian/Ubuntu: `sudo apt install libsrt1.5-gnutls`); the Qt6 used by the dock is a runtime dependency of OBS (bundled on Windows/macOS, installed from the distro along with OBS on Linux), so there is nothing extra to install.
 4.  **Launch OBS**: restart OBS Studio; the plugin loads automatically.

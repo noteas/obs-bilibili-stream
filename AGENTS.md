@@ -14,7 +14,7 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 - `src/core/session.*` — **运行期状态的唯一所有者**(登录态/房间态快照/线路表/忙碌/分区表);一切 UI 只是它的 Listener 视图。「是否在播」以服务端 room/GetInfo 为准
 - `src/plugin-main.cpp`、`src/ui/` — UI:`console.*` = 隐藏私有 source「控制台」的 obs_properties(配置界面,Qt-free);`dock.*` = 状态侧栏(Qt Widgets,ADR-0010,**工程里唯一包含 Qt 头的翻译单元**,不定义 Q_OBJECT 免 moc)。两处都不写业务状态,只读 Session、调 Session
 - `src/md5`、`src/json11`、`src/qrcodegen` — vendored,保持不动
-- `third_party/obs-rtmp-srt` — git submodule,own fork(基线 = 上游 OBS 32.2.0 的 `librtmp` + `rtmp-stream`/`flv-mux` 逐字导入)。rtmpsrt 重实现的载体:**RTMP/FLV/AMF 逻辑零改动,只在 socket 层加 SRT 分支**,SRT 改造全部落在本 fork、不在主仓手搓协议(见 ADR-0008、E-27)
+- `third_party/obs-rtmp-srt` — git submodule,own fork(基线 = 上游 OBS 32.2.0 的 `librtmp` + `rtmp-stream`/`flv-mux` 逐字导入)。rtmpsrt 重实现的载体:**RTMP/FLV/AMF 逻辑零改动,只在 socket 层加 SRT 分支**,SRT 改造全部落在本 fork、不在主仓手搓协议(见 ADR-0008、E-27)。第三方依赖一律 `find_package` → imported target(fork 的 `cmake/finders/` = OBS 32.2 官方 Find 模块,libsrt 仅加 Debian 名扩展);禁止裸路径变量/裸 `-l` 链接
 - `docs/api/livehime-api.md` — **端点契约**:增/改任何请求参数、请求头、响应字段前必读,那里有每个字段的注入条件与官方解析顺序;契约里没有的字段 = 先补逆向再实现,不许猜
 - `docs/roadmap.md` — 里程碑与缺口状态;每个里程碑收尾必须同步它
 - `docs/adr/` — 架构决策。提出与任一 ADR 相左的方案前先读对应 ADR
@@ -60,7 +60,7 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 
 ## 构建
 
-配置/构建 preset 见 `CMakePresets.json`(configure preset `ubuntu-x86_64`,产物目录 `build_x86_64/`,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包 + **Qt6 Widgets 开发包**(`qt6-base-dev`,侧栏用,ADR-0010;`-DENABLE_DOCK=OFF` 回到 Qt-free 形态)+ libsrt/mbedtls 开发包(fork 的私有 SRT 输出用))。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
+配置/构建 preset 见 `CMakePresets.json`(configure preset `ubuntu-x86_64`,产物目录 `build_x86_64/`,依赖 = 系统 OBS 的 libobs cmake 包 + libcurl + libsimde-dev 头文件包 + **Qt6 Widgets 开发包**(`qt6-base-dev`,侧栏用,ADR-0010;`-DENABLE_DOCK=OFF` 回到 Qt-free 形态)+ libsrt/mbedtls/jansson/zlib 开发包(fork 的私有 SRT 输出用,经 fork 的官方 Find 模块解析为 imported target,见「仓库地图」))。安装布局不写在根 CMakeLists:`set_target_properties_plugin`(helpers)统一处理 Linux(`lib/…/obs-plugins` + `share/obs/obs-plugins/<name>`)/Windows(`<name>/bin/64bit` + `<name>/data`)/flatpak 扩展三种约定路径。完成判据:`cmake --build` 产物 `.so` 拷入 OBS 32 用户插件目录 `~/.config/obs-studio/plugins/<插件名>/bin/64bit/<插件名>.so`(用户目录按 `%module%` 模板扫描,平铺 `.so` 不会被加载)后,OBS 启动日志出现「插件版本:」且工具菜单出现「B站直播控制台」。
 
 **调试构建一律 build type = Debug**(2026-11-26 用户确立):preset `ubuntu-x86_64-debug`(产物 `build_x86_64_debug/`),`cmake --preset ubuntu-x86_64-debug && cmake --build --preset ubuntu-x86_64-debug`。崩溃/疑难排查必须带完整符号——配合 systemd-coredump(`coredumpctl info <pid>`)+ `addr2line -f -C -i -e <so> <偏移>` 定位;禁止拿 Release/RelWithDebInfo 排崩溃。日常安装与发版仍走 Release preset。
 
