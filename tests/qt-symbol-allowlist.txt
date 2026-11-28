@@ -6,6 +6,8 @@
 #   1) 确认该符号在目标下限 Qt 里存在(查最老 Qt 的导出表,不要凭印象);
 #   2) 再加进本文件并提交。
 # 格式:每行一个「类::成员」;构造/析构 = 类::类 / 类::~类;虚表 = 类::vtable。
+# 本名单在 Itanium(GCC/Clang)与 Windows(MSVC)上共用;Windows 另并入
+# qt-symbol-allowlist-msvc.txt(MSVC 本地生成 vftable、不内联 dllimport 内联成员而多出的引用)。
 QAbstractButton::clicked
 QAbstractButton::staticMetaObject
 QArrayData::deallocate

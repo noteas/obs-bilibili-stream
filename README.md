@@ -37,7 +37,7 @@
     ```bash
     unzip -o bilibili-stream-for-obs-*-x86_64-ubuntu-*.zip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
     ```
-3.  **运行库**：私有 SRT 输出需要 `libsrt1.5-gnutls`(Debian/Ubuntu:`sudo apt install libsrt1.5-gnutls`);侧栏用的 Qt6 由 OBS 自带。
+3.  **运行库**：私有 SRT 输出需要 `libsrt1.5-gnutls`(Debian/Ubuntu:`sudo apt install libsrt1.5-gnutls`);侧栏用的 Qt6 是 OBS 的运行依赖(Windows/macOS 随 OBS 打包,Linux 由发行版随 OBS 装上),无需另装。
 4.  **启动 OBS**：重新启动 OBS Studio,插件将自动加载。
 
 ### Flatpak（OBS Studio Flatpak）

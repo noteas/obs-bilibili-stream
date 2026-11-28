@@ -65,4 +65,4 @@
 
 1. `ctest`:`srt_target_test`/`srt_catalog_test`/`bili_parsers_test`(端点响应解析,fixtures = 契约钉死的形状)。
 2. 无头集成 `tests/harness/run_headless.sh`(需 X display、python3、openssl;`-DBUILD_HARNESS=ON`):真实 libobs + 真实 Qt(offscreen)+ 假 B站服务端(CONNECT 代理 + TLS 卸载),把编译出的 .so 按 OBS 的方式装进来,从外部驱动侧栏走完登录/获取推流码/二次确认/找回/退出卸载,并对照假服务端请求日志断言「发了什么、没发什么」;OBS 日志里出现推流码/会话凭据即失败。CI 在 ubuntu-24.04 跑,本地可加 `-fsanitize=address,undefined` 构建。它不替代真机:停靠布局、主题、HiDPI、真实扫码仍需用户 OBS。
-3. Qt 符号审计 `tests/check_qt_symbols.py`:插件引用的 Qt 符号 ⊆ allowlist(逐个对照 Qt 6.2.4 导出表),CI 在 Ubuntu/Windows 构建后跑。
+3. Qt 符号审计 `tests/check_qt_symbols.py`:插件引用的 Qt 符号 ⊆ allowlist(逐个对照 Qt 6.2.4 导出表),CI 在 ubuntu-24.04 与 Windows 构建后跑;Windows 另并入 MSVC 专有名单 `tests/qt-symbol-allowlist-msvc.txt`(本地生成 vftable 等多出的引用),ubuntu-26.04 不跑(其 Qt 6.10 头文件下 `setProperty` 内联成 6.6 才导出的 `doSetProperty`,产物本就只面向新系统,见 ADR-0010 §4)。

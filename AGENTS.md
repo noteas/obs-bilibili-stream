@@ -18,7 +18,7 @@ OBS 插件:代理 B站直播的**信令面**(开播/停播/恢复/质量协商),
 - `docs/api/livehime-api.md` — **端点契约**:增/改任何请求参数、请求头、响应字段前必读,那里有每个字段的注入条件与官方解析顺序;契约里没有的字段 = 先补逆向再实现,不许猜
 - `docs/roadmap.md` — 里程碑与缺口状态;每个里程碑收尾必须同步它
 - `docs/adr/` — 架构决策。提出与任一 ADR 相左的方案前先读对应 ADR
-- `tests/` — 三层离线验证:`ctest`(srt_target/srt_catalog/bili_parsers 解析);`tests/harness`(无头集成:真实 libobs + 真实 Qt offscreen + 假 B站服务端,见 `tests/harness/README.md`);`tests/check_qt_symbols.py`(Qt 符号 ⊆ allowlist,ADR-0010)
+- `tests/` — 三层离线验证:`ctest`(srt_target/srt_catalog/bili_parsers 解析);`tests/harness`(无头集成:真实 libobs + 真实 Qt offscreen + 假 B站服务端,见 `tests/harness/README.md`);`tests/check_qt_symbols.py`(Qt 符号 ⊆ allowlist,ADR-0010;Windows 另并入 `qt-symbol-allowlist-msvc.txt`)
 - `re/` — 本地逆向档案,**不入 git**(Ghidra 反编译原文、证据 E-xx/F-地址、分析脚本)。契约中的证据编号只在这份档案里可解析
 
 ## 工具
@@ -67,7 +67,8 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 ## 验证
 
 - `ctest --test-dir build_x86_64`(离线解析回归)。
-- `python3 tests/check_qt_symbols.py build_x86_64/bilibili-stream-for-obs.so`(插件引用的 Qt 符号 ⊆ `tests/qt-symbol-allowlist.txt`;新符号先核对存在于 Qt 6.2.4 再入表)。
+- `python3 tests/check_qt_symbols.py --selftest && python3 tests/check_qt_symbols.py build_x86_64/bilibili-stream-for-obs.so`(插件引用的 Qt 符号 ⊆ `tests/qt-symbol-allowlist.txt`;新符号先核对存在于 Qt 6.2.4 再入表)。只在 Windows 出现的引用(MSVC 本地生成 vftable、不内联 dllimport 内联成员)入 `tests/qt-symbol-allowlist-msvc.txt`,核对口径是 Qt 6.2.4 的 msvc2019_64 导入库。
+- CI 矩阵分工(`.github/workflows/build-project.yaml`):ubuntu-24.04 = 符号审计 + 无头 harness(面向「OBS 30.0+」的那份产物);ubuntu-26.04 = 最新 Qt 头文件的编译检查与打包(不审计,原因见 ADR-0010 §4;新头文件才有的编译错误只在它上面出现,如 Qt 6.10 起 `QFile::open` 带 `[[nodiscard]]`,本机 Qt 旧时复现不了,直接看 CI 日志);Windows = 审计并入 MSVC 名单。矩阵默认 fail-fast:一个 job 挂了其余会被取消,「cancelled」的 job 要看它被取消前有没有真失败。
 - 无头集成(需 X display、python3、openssl;构建时 `-DBUILD_HARNESS=ON`):`xvfb-run -a tests/harness/run_headless.sh build_x86_64/tests/bili_harness build_x86_64/bilibili-stream-for-obs.so`。加 `-fsanitize=address,undefined` 构建再跑一遍可查内存/未定义行为。它不替代真机:停靠布局、主题、HiDPI、真实扫码必须在用户 OBS 上验收。
 
 ## 安装，运行
