@@ -53,7 +53,7 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 - 真实开播类调用(startLive/stopLive/恢复)**仅在用户在场并明确同意时**发起;平时验证 = 离线解析测试 + dry-run 日志
 - 每项独立改动原子提交;文档、注释时刻与代码同步
 - **日志零凭据**:任何情况下 OBS 日志不得出现推流码、live_key、登录 ticket/refresh_token、Cookie、完整响应体(只记 HTTP 状态 + code/message;传输失败记主机名 + curl 原因,不记 URL 查询串)。排查契约问题要原文时由用户显式设 `BILI_TRACE_HTTP=1`,且提醒不要外传该日志
-- **UI 只读 Session**:新增界面状态一律进 `Core::Session`,视图(控制台/侧栏)不持有业务状态;Qt 只允许出现在 `src/ui/dock.cpp`;不要在控件信号的调用栈里 delete 控件(重建一律经 0ms 单发定时器)
+- **UI 只读 Session**:新增界面状态一律进 `Core::Session`,视图(控制台/侧栏)不持有业务状态;Qt 只允许出现在 `src/ui/dock.cpp`;不要在控件信号的调用栈里 delete 控件(重建一律经 0ms 单发定时器);侧栏内容一律建在滚动层(`g_scroll`,`DockScrollArea`)的视口里,不要直接塞进 `g_root` 的布局——停靠区比内容矮时必须出滚动条,而不是把控件压扁/裁掉(ADR-0010 §8)
 - **构建失败时不要吞输出**(2026-11-27 教训:把 make 输出丢进 /dev/null,链接失败没被发现,拿旧 .so 跑了一轮测试得到假结论)
 - **跨平台原则**:主仓与 `third_party/` fork 的全部 C/C++ 在 Linux(主开发平台)与 Windows(MSVC,官方 OBS 构建链)都必须可编译、可测试;平台差异(套接字 API、线程句柄、printf 格式符、动态库导出等)只隔离在薄的编译期分支层,主体逻辑禁止平台专有写法;libsrt 等第三方依赖在两端都要有对应链接路径(Windows 官方 OBS 自带 srt.dll)。拿不准写法时,照 OBS 上游同场景的可移植写法
 - **零警告原则**(2026-11-28 强化):Release/Debug 构建与全部测试一律 **0 警告**、**0 CMake 警告**(configure 输出不得出现 `CMake Warning`);范围覆盖本仓代码 + `third_party/obs-rtmp-srt` fork 的**全部文件(含上游原文)**——fork 文件有警告就用最小补丁修掉(显式类型转换/守卫),禁止用抑制警告的编译选项掩盖问题。验证必须双工具链:GCC(CI/本机)与 clang(clang-18 同 flag 扫 `-Wshorten-64-to-32`/`-Wcomma`/`-Wnon-pod-varargs`,flatpak 工具链即 clang,GCC 看不见这类);MSVC 警告随 Windows CI 清零。fork 外的系统第三方依赖不在整治范围。改动「逗号表达式拆语句」这类结构补丁时必须核对循环体大括号(单语句体拆分会改变语义,2026-11-28 实测教训)

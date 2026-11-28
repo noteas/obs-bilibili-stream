@@ -18,11 +18,17 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QPointer>
+#include <QPoint>
 #include <QPushButton>
+#include <QRect>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QThread>
 #include <QTimer>
 
@@ -636,6 +642,102 @@ static void scenario_first_run_shows_dock()
 	check(d && d->isVisible() && !d->isFloating(), "firstrun: dock shown and docked after FINISHED_LOADING");
 }
 
+// 侧栏比内容矮(停靠区拉矮,或取到推流码后内容变高):内容经滚动层完整可及——控件不被压扁、
+// 不被裁掉,纵向滚动条出现;滚到底后最下面的按钮可见可点;状态变化重建内容后滚动位置保持;
+// 停靠区足够高时没有滚动条。
+static void scenario_short_dock_scrolls()
+{
+	check(wait_logged_in(), "short: seeded session loaded");
+	check(wait_until([]() { return line_has("SEEDED") && button(kBtnSettings) != nullptr; }),
+	      "short: lines + actions rendered");
+	QDockWidget *d = dock();
+	QScrollArea *scroll = d ? d->findChild<QScrollArea *>() : nullptr;
+	// 没有滚动层(套滚动层之前的结构)时拿根控件当内容继续量:下面的断言要能在旧结构上报出
+	// 「被压扁 / 被裁掉」,而不是只在「有没有滚动层」这一条上失败。
+	QWidget *viewport = scroll ? scroll->viewport() : content();
+	QScrollBar *vbar = scroll ? scroll->verticalScrollBar() : nullptr;
+	check(scroll != nullptr, "short: content lives inside a scroll area");
+	if (!d || !viewport)
+		return;
+	// 内容控件会被重建(状态变化、周期对账):只在用到的那一刻取,不跨 pump 持有裸指针。
+	auto cur = [scroll]() -> QWidget * {
+		return scroll ? scroll->widget() : content();
+	};
+	// 内容完整 = 高度不小于布局的最小高度,且每个可见控件都落在内容矩形内(没被裁掉)。
+	auto intact = [&cur]() -> bool {
+		QWidget *c = cur();
+		if (!c || c->height() < c->layout()->minimumSize().height())
+			return false;
+		for (QWidget *w : c->findChildren<QWidget *>()) {
+			if (!w->isVisibleTo(c))
+				continue;
+			if (!c->rect().contains(QRect(w->mapTo(c, QPoint(0, 0)), w->size())))
+				return false;
+		}
+		return true;
+	};
+	// 「看得见」= 落在滚动层视口内(旧结构:根控件矩形内),且没被主窗口裁掉。
+	auto in_view = [viewport](QWidget *w) {
+		if (!viewport->rect().contains(QRect(w->mapTo(viewport, QPoint(0, 0)), w->size())))
+			return false;
+		QWidget *win = w->window();
+		return win->rect().contains(QRect(w->mapTo(win, QPoint(0, 0)), w->size()));
+	};
+
+	// 停靠区替身:停回主窗口右侧停靠区(与 DockShow 同样 setFloating(false)),再让主窗口
+	// 矮到停靠区装不下内容——OBS 主窗口有自己的最小尺寸,停靠区塞不下时不会替侧栏撑开。
+	// 浮动的 dock 不行:它缩不到比内容的最小高度更小,旧结构在那个模型下复现不了。
+	d->setFloating(false);
+	d->show();
+	g_main->resize(1280, 900);
+	pump(300);
+	check(intact(), "short: tall dock area shows the content intact");
+	check(vbar && vbar->maximum() == 0, "short: tall dock area needs no vertical scroll range");
+	{
+		QWidget *c = cur();
+		check(scroll && c && scroll->sizeHint().height() >= c->sizeHint().height(),
+		      "short: preferred height is the full content height, not capped at 24 font lines");
+	}
+
+	g_main->setMinimumSize(200, 200);
+	g_main->resize(1280, 200);
+	pump(300);
+	check(g_main->height() < cur()->layout()->minimumSize().height(),
+	      "short: window is now shorter than the content (the squeezed situation)");
+	check(vbar && vbar->maximum() > 0, "short: squeezed dock gets a vertical scroll range");
+	check(intact(), "short: squeezed dock keeps the content intact (not squeezed, nothing clipped)");
+	QPushButton *settings = button(kBtnSettings);
+	check(settings && !in_view(settings), "short: bottom button starts below the fold");
+	check(settings && (in_view(settings) || (vbar && vbar->maximum() > 0)),
+	      "short: bottom button stays reachable (in view, or by scrolling)");
+	if (!vbar)
+		return; // 旧结构到此为止:上面几条已经报出压扁/裁掉
+	vbar->setValue(vbar->maximum());
+	pump(100);
+	settings = button(kBtnSettings);
+	check(settings && in_view(settings), "short: scrolling to the bottom brings it into view");
+	if (settings)
+		settings->click();
+	check(wait_until([]() { return g_properties_opens == 1; }, 5000),
+	      "short: bottom button is clickable once scrolled into view");
+
+	// 状态变化 → 重建内容:旧内容被滚动层摘下并销毁,新内容同样高,滚动位置留在底部。
+	const int range = vbar->maximum();
+	QPointer<QWidget> old = cur();
+	g_streaming = true;
+	fire_event(OBS_FRONTEND_EVENT_STREAMING_STARTED);
+	check(wait_until([]() { return label_has(kObsStreaming); }), "short: content rebuilt on state change");
+	pump(200);
+	check(old.isNull(), "short: replaced content deleted");
+	check(intact(), "short: rebuilt content intact");
+	check(vbar->maximum() == range, "short: same-height content keeps the scroll range");
+	check(vbar->value() == vbar->maximum(), "short: scroll position kept (still at the bottom)");
+	settings = button(kBtnSettings);
+	check(settings && in_view(settings), "short: bottom button still in view after the rebuild");
+	g_streaming = false;
+	fire_event(OBS_FRONTEND_EVENT_STREAMING_STOPPED);
+}
+
 static void scenario_backup_fallback()
 {
 	check(wait_logged_in(), "backup: seeded session loaded");
@@ -706,6 +808,8 @@ int main(int argc, char *argv[])
 		 true, true, true},
 		{"exit_then_unload", scenario_exit_then_unload, R"({"reset": true})", true, false, true},
 		{"first_run_shows_dock", scenario_first_run_shows_dock, R"({"reset": true})", true, false, false},
+		{"short_dock_scrolls", scenario_short_dock_scrolls, R"({"reset": true, "room_live": 1})", true, true,
+		 true},
 		{"backup_fallback", scenario_backup_fallback,
 		 R"({"reset": true, "visible_mode": 5, "start_codes": [70003]})", true, false, true},
 		{"partition_fail_no_loop", scenario_partition_fail_no_loop,

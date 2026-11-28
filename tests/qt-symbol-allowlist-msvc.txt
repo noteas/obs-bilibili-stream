@@ -5,10 +5,13 @@
 #   1) vftable 归属规则不同。Itanium ABI(GCC/Clang)把类的 vtable 放在「关键函数」所在的
 #      翻译单元,Qt 类的关键函数在 Qt 自己的库里,插件只导入一个 vtable for QLabel;
 #      MSVC 则在每个用到该类的翻译单元本地生成 vftable(dllimport 的类在本翻译单元里没有
-#      任何虚函数定义),该类虚表的每个槽位于是都成了导入符号(下面的甲类,189 项)。
+#      任何虚函数定义),该类虚表的每个槽位于是都成了导入符号(下面的甲类,160 项)。
 #   2) MSVC 对 dllimport 类的头文件内联成员不保证内联,会直接调用 DLL 导出的那份;
 #      GCC/Clang 一律就地内联,不产生引用(乙类,6 项)。
 # 这两类在 Itanium 平台分别由主名单的 类::vtable 一项与内联展开覆盖,不代表插件多调了 API。
+# 例外:插件里自己定义的 Qt 子类(DockScrollArea)的 vtable 在插件内生成,它的槽位在两个平台上
+# 都是引用,所以那些槽位(QAbstractScrollArea/QScrollArea/QFrame 的虚函数,以及它们没覆写的
+# QWidget/QObject 槽位)都在主名单里,不在本文件。
 #
 # 核对口径(2026-11-28):每一行对照过 Qt 6.2.4 msvc2019_64 的 Qt6Core/Qt6Gui/Qt6Widgets.lib
 # (导入库全量修饰名用与脚本相同的 key_msvc 归一后比对),即与主名单相同的 Qt 下限;
@@ -26,6 +29,7 @@ QAbstractButton::mousePressEvent
 QAbstractButton::mouseReleaseEvent
 QAbstractButton::nextCheckState
 QAbstractButton::timerEvent
+
 # ---- QBoxLayout(15) ----
 QBoxLayout::addItem
 QBoxLayout::count
@@ -42,8 +46,7 @@ QBoxLayout::setSpacing
 QBoxLayout::sizeHint
 QBoxLayout::spacing
 QBoxLayout::takeAt
-# ---- QFrame(1) ----
-QFrame::initStyleOption
+
 # ---- QGridLayout(19) ----
 QGridLayout::addItem
 QGridLayout::count
@@ -64,6 +67,7 @@ QGridLayout::sizeHint
 QGridLayout::spacing
 QGridLayout::takeAt
 QGridLayout::~QGridLayout
+
 # ---- QGroupBox(15) ----
 QGroupBox::changeEvent
 QGroupBox::childEvent
@@ -80,11 +84,13 @@ QGroupBox::qt_metacall
 QGroupBox::qt_metacast
 QGroupBox::resizeEvent
 QGroupBox::~QGroupBox
+
 # ---- QHBoxLayout(4) ----
 QHBoxLayout::metaObject
 QHBoxLayout::qt_metacall
 QHBoxLayout::qt_metacast
 QHBoxLayout::~QHBoxLayout
+
 # ---- QLabel(18) ----
 QLabel::changeEvent
 QLabel::contextMenuEvent
@@ -104,6 +110,7 @@ QLabel::qt_metacall
 QLabel::qt_metacast
 QLabel::sizeHint
 QLabel::~QLabel
+
 # ---- QLayout(7) ----
 QLayout::childEvent
 QLayout::controlTypes
@@ -112,9 +119,11 @@ QLayout::indexOf
 QLayout::isEmpty
 QLayout::layout
 QLayout::replaceWidget
+
 # ---- QLayoutItem(2) ----
 QLayoutItem::spacerItem
 QLayoutItem::widget
+
 # ---- QLineEdit(26) ----
 QLineEdit::changeEvent
 QLineEdit::contextMenuEvent
@@ -142,14 +151,11 @@ QLineEdit::qt_metacast
 QLineEdit::sizeHint
 QLineEdit::timerEvent
 QLineEdit::~QLineEdit
-# ---- QObject(7) ----
-QObject::childEvent
-QObject::connectNotify
-QObject::customEvent
-QObject::disconnectNotify
+
+# ---- QObject(2) ----
 QObject::event
 QObject::eventFilter
-QObject::timerEvent
+
 # ---- QPushButton(14) ----
 QPushButton::event
 QPushButton::focusInEvent
@@ -165,63 +171,44 @@ QPushButton::qt_metacall
 QPushButton::qt_metacast
 QPushButton::sizeHint
 QPushButton::~QPushButton
+
 # ---- QTimer(5) ----
 QTimer::metaObject
 QTimer::qt_metacall
 QTimer::qt_metacast
 QTimer::timerEvent
 QTimer::~QTimer
+
 # ---- QVBoxLayout(4) ----
 QVBoxLayout::metaObject
 QVBoxLayout::qt_metacall
 QVBoxLayout::qt_metacast
 QVBoxLayout::~QVBoxLayout
-# ---- QWidget(45) ----
-QWidget::actionEvent
+
+# ---- QWidget(22) ----
 QWidget::changeEvent
-QWidget::closeEvent
 QWidget::contextMenuEvent
-QWidget::devType
 QWidget::dragEnterEvent
 QWidget::dragLeaveEvent
 QWidget::dragMoveEvent
 QWidget::dropEvent
-QWidget::enterEvent
 QWidget::event
-QWidget::focusInEvent
 QWidget::focusNextPrevChild
-QWidget::focusOutEvent
-QWidget::hasHeightForWidth
-QWidget::heightForWidth
-QWidget::hideEvent
-QWidget::initPainter
-QWidget::inputMethodEvent
-QWidget::inputMethodQuery
 QWidget::keyPressEvent
-QWidget::keyReleaseEvent
-QWidget::leaveEvent
 QWidget::metaObject
-QWidget::metric
 QWidget::minimumSizeHint
 QWidget::mouseDoubleClickEvent
 QWidget::mouseMoveEvent
 QWidget::mousePressEvent
 QWidget::mouseReleaseEvent
-QWidget::moveEvent
-QWidget::nativeEvent
-QWidget::paintEngine
 QWidget::paintEvent
 QWidget::qt_metacall
 QWidget::qt_metacast
-QWidget::redirected
 QWidget::resizeEvent
-QWidget::setVisible
-QWidget::sharedPainter
-QWidget::showEvent
 QWidget::sizeHint
-QWidget::tabletEvent
 QWidget::wheelEvent
 QWidget::~QWidget
+
 #
 # ============ 乙、未内联的 dllimport 内联成员(GCC/Clang 就地内联,不产生引用) ============
 QPainter::drawRect
