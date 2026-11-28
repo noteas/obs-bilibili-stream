@@ -144,23 +144,24 @@ jobs:
         shell: bash
         run: |
           : Package Plugin Directory Zip
-          # 用户插件目录布局(OBS %module% 模板):bin/64bit/<lib> + data/,
-          # 解压即用: unzip -d ~/.config/obs-studio/plugins/bilibili-stream-for-obs/
+          # 用户插件目录布局(OBS %module% 模板):zip 顶层 = 插件名目录
+          # bilibili-stream-for-obs/,内含 bin/64bit/<lib> + data/,
+          # 解压即用: unzip -d ~/.config/obs-studio/plugins/
           src="$(find build_x86_64 -name 'bilibili-stream-for-obs.so' -print -quit)"
           if [ -z "$src" ]; then
             echo "::error::.so not found after build"
             exit 1
           fi
           stage="$(mktemp -d)"
-          mkdir -p "$stage/bin/64bit" "$stage/data/locale"
-          cp "$src" "$stage/bin/64bit/"
+          mkdir -p "$stage/bilibili-stream-for-obs/bin/64bit" "$stage/bilibili-stream-for-obs/data/locale"
+          cp "$src" "$stage/bilibili-stream-for-obs/bin/64bit/"
           # data/locale/*.ini = 界面文案 i18n 必装项(缺了 obs_module_text 只回显键名)
-          cp data/locale/en-US.ini data/locale/zh-CN.ini "$stage/data/locale/"
+          cp data/locale/en-US.ini data/locale/zh-CN.ini "$stage/bilibili-stream-for-obs/data/locale/"
           printf '%s\n' \
-            '安装: 解压本 zip 到 ~/.config/obs-studio/plugins/bilibili-stream-for-obs/ (得到 bin/64bit/ 与 data/)。' \
+            '安装: 解压本 zip 到 ~/.config/obs-studio/plugins/ (得到 bilibili-stream-for-obs/ 目录)。' \
             'data/locale/ 为界面文案(zh-CN/en-US),必须与 .so 同装。' \
-            > "$stage/data/README.txt"
-          ( cd "$stage" && zip -rq plugin.zip bin data )
+            > "$stage/bilibili-stream-for-obs/data/README.txt"
+          ( cd "$stage" && zip -rq plugin.zip bilibili-stream-for-obs )
           dst="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64-${{ matrix.os }}.zip"
           sudo mkdir -p release
           sudo cp -f "$stage/plugin.zip" "$dst"
@@ -301,7 +302,8 @@ jobs:
       - name: Package Plugin Directory Zip 📦
         shell: pwsh
         run: |
-          # 用户插件目录布局(OBS %module% 模板):bin/64bit/<lib> + data/。
+          # 用户插件目录布局(OBS %module% 模板):zip 顶层 = 插件名目录
+          # bilibili-stream-for-obs/,内含 bin\64bit\ + data\。
           # 覆盖 Package-Windows.ps1 生成的安装布局 zip:三平台统一发「解压即用」zip,
           # 不再附裸 .dll。
           $dll = Get-ChildItem -Path build_x64 -Recurse -Filter 'bilibili-stream-for-obs.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -311,17 +313,18 @@ jobs:
           }
           $stage = Join-Path $env:RUNNER_TEMP 'plugin-zip'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'bin/64bit') | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'data/locale') | Out-Null
-          Copy-Item $dll.FullName (Join-Path $stage 'bin/64bit/')
+          $module = Join-Path $stage 'bilibili-stream-for-obs'
+          New-Item -ItemType Directory -Force -Path (Join-Path $module 'bin/64bit') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $module 'data/locale') | Out-Null
+          Copy-Item $dll.FullName (Join-Path $module 'bin/64bit/')
           # data/locale/*.ini = 界面文案 i18n 必装项(缺了 obs_module_text 只回显键名)
-          Copy-Item data/locale/en-US.ini, data/locale/zh-CN.ini (Join-Path $stage 'data/locale/')
-          Set-Content -Encoding utf8 -Path (Join-Path $stage 'data/README.txt') -Value @(
-            '安装: 解压本 zip 到 %APPDATA%\obs-studio\plugins\bilibili-stream-for-obs\ (得到 bin\64bit\ 与 data\)。',
+          Copy-Item data/locale/en-US.ini, data/locale/zh-CN.ini (Join-Path $module 'data/locale/')
+          Set-Content -Encoding utf8 -Path (Join-Path $module 'data/README.txt') -Value @(
+            '安装: 解压本 zip 到 %APPDATA%\obs-studio\plugins\ (得到 bilibili-stream-for-obs\ 目录)。',
             'data\locale\ 为界面文案(zh-CN/en-US),必须与 DLL 同装。'
           )
           $dst = "release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64.zip"
-          Compress-Archive -Force -CompressionLevel Optimal -Path (Join-Path $stage 'bin'), (Join-Path $stage 'data') -DestinationPath $dst
+          Compress-Archive -Force -CompressionLevel Optimal -Path $module -DestinationPath $dst
           Remove-Item -Recurse -Force $stage
           Write-Host "plugin dir zip: $dst (replaces installer-layout zip)"
 

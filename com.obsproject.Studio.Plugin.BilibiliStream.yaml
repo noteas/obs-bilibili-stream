@@ -82,8 +82,8 @@ modules:
           - build-flatpak
           - flatpak-repo
           - release
-    post-install:
-      - rm -rf ${FLATPAK_DEST}/obs-plugins
+    # 安装布局由 helpers(set_target_properties_plugin)直接落在扩展约定路径
+    # (${FLATPAK_DEST}/lib/obs-plugins + share/obs/obs-plugins/<name>),无需清理步骤。
 
   - name: appstream
     buildsystem: simple

@@ -71,6 +71,9 @@ runs:
           libjansson-dev \
           libsimde-dev \
           zlib1g-dev \
+          # fork 的官方 Find 模块(FindLibsrt/Findjansson/FindMbedTLS)以
+          # pkg-config 作首选提示源(发行版库名/版本从此读)
+          pkg-config \
           cmake \
           build-essential \
           ccache
