@@ -47,6 +47,7 @@ xvfb-run -a tests/harness/run_headless.sh build_x86_64_debug/tests/bili_harness 
 | `stale_lines_cleared` | 服务端未开播而本地留着上一场线路:对账后清掉 |
 | `exit_then_unload` | `OBS_FRONTEND_EVENT_EXIT`:dock 摘除、事件回调注销,随后卸载干净 |
 | `first_run_shows_dock` | 首次加载 `FINISHED_LOADING`:dock 自动显示并停靠 |
+| `short_dock_scrolls` | 停靠区比内容矮:内容在滚动层里保持完整高度(不压扁、不裁切)、纵向滚动条出现;滚到底后最下面的按钮可见可点;状态变化重建内容后滚动位置保持在底部;停靠区足够高时没有滚动条 |
 | `backup_fallback` | 有备流资格(=5):先发备流参数,70003 后回退普通开播 |
 | `partition_fail_no_loop` | 分区接口 500:只请求一次,属性表不重建循环 |
 | `empty_title_keeps_local` | 服务端 `data.title` 为空:面板保留本地标题(上游 ae01b1b 的守卫) |
