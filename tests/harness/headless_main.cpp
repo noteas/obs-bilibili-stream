@@ -381,7 +381,12 @@ static void write_file(const std::string &path, const std::string &text)
 	QFileInfo info(QString::fromStdString(path));
 	QDir().mkpath(info.absolutePath());
 	QFile f(QString::fromStdString(path));
-	f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+	// Qt 6.10 起 QFile::open 带 [[nodiscard]]:种子文件写不进去要让场景明确失败,
+	// 不能静默丢弃返回值(否则 -Werror=unused-result 直接打断 26.04 的构建)。
+	if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		check(false, "seed: cannot write " + path + ": " + f.errorString().toStdString());
+		return;
+	}
 	f.write(text.data(), static_cast<qint64>(text.size()));
 }
 
