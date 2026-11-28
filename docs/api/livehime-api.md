@@ -76,7 +76,7 @@ parser 第一步校验 `code` 存在, `code!=0` 走错误分派, `code==0` 才�
 | 60024 | 需人脸 → `data.qr` 出码 |
 | 60043 | 需人脸 → `auth-middle.html?source_event=200&mid=` |
 | 70003 | 「获取推流地址失败,请稍后重试」= 服务端地址分配失败(实网 2026-11-25 观测;与人脸未过审是否相关未定,官方无特判=按 message 提示重试)。2026-11-26 再观测:带 `backup_stream=1` 但缺 `backup_stream_type`/`stream_biz` 伴参的备流请求命中 70003,同会话普通开播成功;builder 已按 E-19 对齐恒注伴参,**是否因缺参被拒待对齐后复验**(2026-11-26 复验:伴参补齐后转 70002,见下行) |
-| 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验。**复验 2026-11-26(src=8 已注入,仍 70002)**:body 与官方 Normal 默认字面量全等(`backup_stream=1&backup_stream_type=2&stream_biz=Paylive&type=1&checked=0&src`,LIVE-CHAIN §2.5 终稿)⇒ 差异不在 body。官方结果回调(`FUN_180d63460`,§2.7)对 startLive 失败**无回退重试**=直播姬同样会报此错,插件的「回退普通开播」是插件自有设计。**首要嫌疑=access_key 缺失**(公共参数注入器恒带非空 App OAuth 身份,服务端按它判定;先例=stopLive 60034),待扫码重登补 access_key 后复验。**复验 2026-11-26(扫码重登后仍 70002)**:access_key 假设**未获测**——refresh_token 交换本身失败(-101,见 60034 行),官方 web 登录用户的 access_key 可能同样为空(单 appkey 实证)⇒ 嫌疑降级。**复验 2026-11-26(新构建全新扫码,ticket/SSO 链完整)交换仍 -101**:E-20 证 web token 无桥,官方 web 登录 access_key 大概率为空(60034 又证空值可过政策)⇒ access_key 嫌疑进一步弱化。**排除清单**:body 参数(=官方默认字面量,指令级)、appkey(二进制内唯一)、src(=stream_line[0].src=8 已注入)、错误码特判(官方无)、传输层指纹(secret.dll 内嵌 Cronet/BoringSSL/QUIC,与 libcurl 天然不同,但**同插件 libcurl 的普通开播/停播/登录实网全成功** ⇒ 服务端不按指纹拦业务接口,E-22 §3)。**E-22 定案(2026-11-26,根因)**:官方开播分派器 `FUN_180d5de60` 按 `upower_privilege_type`(=§3.10 `GetVisibleMode` 下发)switch,**仅 ==5("PRELIVE_UPOWER")才走备流 builder 发 `backup_stream=1`**;其余值走标准 builder(不带备流参)⇒ **无备流资格账号官方从不发备流请求,故官方永不命中 70002**。普通开播响应 `protocols_backup:null` 与此相互印证(服务端本就没给该账号备流通道)。插件此前把 E-19 备流 builder 的「恒传」字面量当全局、无条件强发备流伴参 = 70002 唯一诱因(此前 src/access_key/client_traceid 诸假设均为对齐方向的正确副产品但非根因)。仓库已修:`startLive(with_backup)` 先 `getVisibleMode()` 查资格,==5 才注伴参,≠5 按官方普通路径发送并提示无资格。E-22 🟢(机制定案);待实网复验:本账号 GetVisibleMode 回值应≠5 且不再出 70002;若=5 则追 preparePaylive 预备调用(E-22 §2) |
+| 70002 | 与 70003 同 message「获取推流地址失败,请稍后重试」。实网首观测 2026-11-26:备流请求已带 `backup_stream_type=2&stream_biz=Paylive` 但**仍缺 `src`** 时命中——错误码由 70003 变 70002 = 伴参已达服务端、分配流程走得更深;结合 E-19/G1(官方恒传 src)推断备流地址分配依赖 src,补齐后是否消解待复验。**复验 2026-11-26(src=8 已注入,仍 70002)**:body 与官方 Normal 默认字面量全等(`backup_stream=1&backup_stream_type=2&stream_biz=Paylive&type=1&checked=0&src`,LIVE-CHAIN §2.5 终稿)⇒ 差异不在 body。官方结果回调(`FUN_180d63460`,§2.7)对 startLive 失败**无回退重试**=直播姬同样会报此错,插件的「回退普通开播」是插件自有设计。**首要嫌疑=access_key 缺失**(公共参数注入器恒带非空 App OAuth 身份,服务端按它判定;先例=stopLive 60034),待扫码重登补 access_key 后复验。**复验 2026-11-26(扫码重登后仍 70002)**:access_key 假设**未获测**——refresh_token 交换本身失败(-101,见 60034 行),官方 web 登录用户的 access_key 可能同样为空(单 appkey 实证)⇒ 嫌疑降级。**复验 2026-11-26(新构建全新扫码,ticket/SSO 链完整)交换仍 -101**:E-20 证 web token 无桥,官方 web 登录 access_key 大概率为空(60034 又证空值可过政策)⇒ access_key 嫌疑进一步弱化。**排除清单**:body 参数(=官方默认字面量,指令级)、appkey(二进制内唯一)、src(=stream_line[0].src=8 已注入)、错误码特判(官方无)、传输层指纹(secret.dll 内嵌 Cronet/BoringSSL/QUIC,与 libcurl 天然不同,但**同插件 libcurl 的普通开播/停播/登录实网全成功** ⇒ 服务端不按指纹拦业务接口,E-22 §3)。**E-22 定案(2026-11-26,根因)**:官方开播分派器 `FUN_180d5de60` 按 `upower_privilege_type`(=§3.10 `GetVisibleMode` 下发)switch,**仅 ==5("PRELIVE_UPOWER")才走备流 builder 发 `backup_stream=1`**;其余值走标准 builder(不带备流参)⇒ **无备流资格账号官方从不发备流请求,故官方永不命中 70002**。普通开播响应 `protocols_backup:null` 与此相互印证(服务端本就没给该账号备流通道)。插件此前把 E-19 备流 builder 的「恒传」字面量当全局、无条件强发备流伴参 = 70002 唯一诱因(此前 src/access_key/client_traceid 诸假设均为对齐方向的正确副产品但非根因)。仓库已修:`startLive()` 先 `getVisibleMode()` 查资格,==5 才注伴参,≠5 按官方普通路径发送并提示无资格。E-22 🟢(机制定案);待实网复验:本账号 GetVisibleMode 回值应≠5 且不再出 70002;若=5 则追 preparePaylive 预备调用(E-22 §2) |
 | 60034 | stopLive 政策拦截「系统维护仅支持直播姬关播」(实网 2026-11-25)。**根因修正(2026-11-26 实网双证据)**:失败于 11-25;修复 `3417d87`(11-26 09:02)同时补齐 stopLive 的 `version/platform/build` 公共参数与 access_key 交换;20:43 停播成功时 **access_key 实测为空**(21:06 才首次触发交换且失败)⇒ **政策放行不需要非空 access_key,生效项=App 版本参数指纹(version/build/platform)**(残余不确定:11-25~26 间政策窗口恰结束无法离线排除)。access_key 交换链(web refresh_token→oauth2/refresh_token)实网 -101 **定案(E-20)**:干净会话(新 ticket+SSO+配对 token)仍 -101 ⇒ web poll token 与该 appkey 端点结构性不兼容;官方 token 仅产自账密登录(v3/oauth2/login,参数簇已逆向)或 authorization_code/SNS,web 扫码无桥(三件套+线上 miniLogin JS 均无 authorize 痕迹)。推论:服务端「直播姬身份」判定以参数/传输指纹为主,70002 的 access_key 嫌疑随之弱化。备用口径=OBS 停止推流，无推流数分钟后服务端自动结束场次。**3.0.2**:交换死链路已从仓库移除,access_key 恒发空值 |
 | `data.notice` 非空 | 弹窗阻断(§4.1 第12步) |
 | `data.risk_extra.v_voucher` | `passport…/captcha`(geetest4)→重试 |
@@ -110,7 +110,7 @@ GET https://passport.bilibili.com/x/passport-login/web/qrcode/generate
 
 ### 证据
 - 官方: 由 CEF 远程页 `mini-login-v2` 的 JS 调用(E-06 端点清单+JS 原文)。
-- 仓库: `getQrCode()` 字段一致 ✅。
+- 仓库: `getQrCode()` 字段一致 ✅。仓库请求另带 `?source=main_electron_pc`(2026-08 适配时的仓库实践,本契约未收录该参数——**文档/代码漂移,待下次逆向复核**;此处只登记不改行为)。
 
 ## 2.2 qrcode.poll
 
@@ -133,7 +133,7 @@ GET https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=<K
 
 ### 证据
 - 官方: H5 JS 内 86038/86090/86101 各 1 处、`2000` 4 处(E-06)。
-- 仓库: `qrLogin()` 同码集 ✅;轮询实现 `src/ui/console.cpp`:**2s × 90 次(≈3 分钟)** ✅(与官方 H5 2000ms 一致,A6 已收口)。
+- 仓库: `qrLogin()` 同码集 ✅,返回 `Bili::QrPoll{Success,NotScanned,Scanned,Expired,Failed}`(86101/86090 是轮询正常节奏,不再记 ERROR);轮询实现 `src/core/session.cpp`:**2s 一次,一张码 90 次(≈3 分钟)后 86038 自动换新**,直到成功/用户取消/模块卸载(卸载时经 `sleep_unless_stopping` 立即退出,官方 H5 2000ms 节奏不变) ✅。
 
 ## 2.3 crossDomain(换 Cookie)
 
@@ -164,7 +164,7 @@ GET https://passport.bilibili.com/x/passport-login/web/sso/list?csrf=<bili_jct>
 
 ### 证据
 - 官方: E-06(H5 端点清单)+ E-06 JS 反混淆(`Wy`/`Yy` 函数体, `data.sso.map`)。
-  仓库: `propagateSso()` 已实现(csrf 透传 + 逐 URL follow)✅(B3 已收口)。
+  仓库: `propagateSso()` 已实现(csrf 透传 + 逐跳 follow,每跳按主机名白名单重算 Cookie 头)✅(B3 已收口)。**只在扫码登录成功后调用一次**(旧版每次刷新都跑,是「刷新慢」的主因之一)。
 
 ## 2.5 captcha(登录风控, geetest4)
 
@@ -251,6 +251,7 @@ GET https://api.bilibili.com/x/web-interface/nav?appkey=…&ts=…&sign=…
 ### 证据
 - 官方: F-1804c2200(builder: 无业务参数+sign+URL)。
 - 仓库: `checkLoginStatus()` 消费同字段, **已按本 builder 带 appsign**(ts+appkey+sign)✅。
+  返回三态 `Bili::Parse::LoginState{LoggedIn,LoggedOut,Unknown}`:`code==0&&isLogin` 已登录;`-101`(或 code 0 且 data 为对象而 isLogin=false)未登录;其余(-412 风控/-799 限频/传输失败)**结果未知,调用方保持原登录态**(旧版把未知一律当未登录)。
 
 ---
 
@@ -290,9 +291,8 @@ hot_rank_info_v3, area_rank_info_v2, dm_length_max, xtemplate_config, rcost, fc_
 ### 证据
 - 官方: builder F-1800c3810 / F-1800c0050(参数仅 `room_id`、`device`,值已钉死);
   解析簇 E-10 @0x112c5bb、@0x112c8f6(内部名 `get-room-info`, common_service_impl2.cpp)。
-- 仓库: `getRoomInfo()` 保留(通用查询);登录链房间态改走 §3.3 room/GetInfo
-  (实网钉死 live_status/lock_status 只在 §3.3 供给);room_id 引导走 app-blink
-  room/GetInfo(§3.3,B1 关闭)。3.0.2 起旧 Web 端点
+- 仓库: 不实现(插件只消费 §3.3;`getInfoByUser/getInfoByRoom` 的解析簇无 `live_status/have_live/lock_*`,
+  见上「实网更正」)。登录链房间态走 §3.3 room/GetInfo(B1 关闭)。3.0.2 起旧 Web 端点
   `room/v2/Room/room_id_by_uid` 回退与 `use_legacy_endpoints` 开关一并移除。
 
 ## 3.3 app-blink room/GetInfo
@@ -320,7 +320,12 @@ multi_user_conn.entrances, collaboration_live_display_info
 `lock_reason` 未下发)。登录链房间态(场次/锁定/进行中场次判据)以本端点为准。
 
 ### 证据: builder F-1802b1e60(字面量 `uId`+sign;派发回调=F-1802b3690)。
-仓库: `getRoomInfoByUid()`;登录链房间态唯一端点(3.0.2 起无旧端点回退);面板房间行的房间名按本端点 `data.title` 服务端回写(换号/网页改名后刷新即更新,本地标题仅编辑草稿)。
+仓库: `getRoomInfoByUid()` → `Bili::Parse::ParseRoomInfo()`(`src/bili_parsers.*`,离线单测 `tests/bili_parsers_test.cpp`);
+登录链房间态唯一端点(3.0.2 起无旧端点回退)。
+消费字段:`room_id`(number/string 皆可)、`live_status`、`title`、`lock_status`/`lock_time`/`lock_reason`
+(兼容解析簇名 `lock_status_v2`)、`parent_id`、`area_v2_id`、`area_v2_name`。**每次刷新只调一次**
+(旧版同一端点调两次)。面板房间行的房间名按本端点 `data.title` 服务端回写(换号/网页改名后刷新即更新,
+本地标题仅编辑草稿;服务端标题为空时不覆盖本地值),分区同理(`area_v2_id`/`parent_id`)。
 
 ## 3.4 getHomePageLiveVersion
 
@@ -413,6 +418,10 @@ GET https://api.live.bilibili.com/room/v1/Area/getList
 
 ### 证据: builder F-18013b430(无参)。仓库 `getPartitionList()` ✅。
 
+仓库口径:登录后打开控制台时惰性加载;**失败只算「试过」**,重试仅发生在用户重开控制台
+(每次打开至多一次)。旧版失败回调会重建属性表→再次触发加载,形成「请求→重建→再请求」死循环
+(断网/API 改版时每 ~100ms 一次,直到触发风控)。
+
 ## 3.9 人脸状态组
 
 ### 请求
@@ -446,8 +455,8 @@ Cookie: <会话>  client_traceid: <非空才带>
 
 | 参数 | 注入条件(官方) | 值 | 仓库 |
 |---|---|---|---|
-| `room_id` | 恒注 | 房间号 | ✅ `:365` |
-| `area_v2` | 恒注 | 二级分区 | ✅ `:367` |
+| `room_id` | 恒注 | 房间号 | ✅ `BiliApi::startLive()` |
+| `area_v2` | 恒注 | 二级分区 | ✅(=服务端回填的 `area_v2_id`) |
 | `checked` | **恒注 `"0"`**(itoa(0) 指令实证) | `"0"` | ✅ 恒注 |
 | `type` | 仅当本地配置 `custom-rtmp` 关(F-180141ed0 `FUN_180904490(cfg,"custom-rtmp")==0` 分支) | **`"1"+开播类型索引`**(`param_7+'1'` 指令实证;custom-rtmp 开时固定 `"1"`) | ✅ 恒注 `"1"`(默认配置+索引0) |
 | `recommend_protocol` | 非空才注 | 合法值含 `"rtmp"`(§响应第3步默认值实证); 其余 U1 | ❌ 3.0.2 移除隐藏配置透传(插件不做测速) |
@@ -455,7 +464,7 @@ Cookie: <会话>  client_traceid: <非空才带>
 | `multi_screen_type` | 多路时 itoa(1) | `"1"` | ❌ |
 | `multi_screen_info` | 非空才注, `,` 连接(0x18111260d) | 联播列表 | ❌ |
 | `xcode_suffixes` | 非空才注(标准 builder) | 后缀列表 | ❌ |
-| `backup_stream` | **仅备流 builder(F-180146070),而该 builder 只在开播分派 `upower_privilege_type==5`(§3.10/E-22)时被调用** | `itoa(param_8)`(builder 第 8 参,指令实证;分派器实参=常量 1) | ✅ `startLive(with_backup=true)`:先查 `getVisibleMode()`,==5 才注伴参;≠5 按官方普通路径发送并提示无资格(E-22) |
+| `backup_stream` | **仅备流 builder(F-180146070),而该 builder 只在开播分派 `upower_privilege_type==5`(§3.10/E-22)时被调用** | `itoa(param_8)`(builder 第 8 参,指令实证;分派器实参=常量 1) | ✅ `startLive()`:先查 `getVisibleMode()`,==5 才注伴参;≠5 按官方普通路径发送并提示无资格(E-22) |
 | `backup_stream_type` | 备流 builder | `itoa(param_9)`(第 9 参,数字);官方恒传 `2`(E-19) | ✅ 恒注 `2`(3.0.2 移除探针覆盖) |
 | `stream_biz` | 备流 builder | `param_10`(第 10 参,字符串原样搬运);官方恒传 `"Paylive"`(教室房 `"ClassRoom"`,E-19) | ✅ 恒注 `Paylive`(3.0.2 移除探针覆盖;插件不做教室房) |
 | `src` | 备流 builder,**仅 `param_6==0`**(custom-rtmp 关);备流 builder 本身仅 `upower_privilege_type==5` 触发(§3.10/E-22) | `itoa(param_5)`(键 `DAT_181120655`);**值域=服务端 `get_stream_by_roomId` 响应 `data.stream_line[].src`(整数)**,经 service 子对象 `vt[0xf8]` getter 原样透传(E-19);同分支内 `checked="0"` | ✅ 备流路径(2026-11-26):单「开播」按钮资格门(E-22)通过后先调 `getActiveStream` 取 `stream_line[].src` 原样透传,checked≠0 优先/无则首条/取不到告警不带。**订正(E-22)**:官方普通开播走标准 builder,**不带** src+备流三参;此前「官方恒带」判断作废 |
@@ -471,7 +480,7 @@ Cookie: <会话>  client_traceid: <非空才带>
 `FUN_180d5de60` 读 `upower_privilege_type`(来自 §3.10 `GetVisibleMode`)switch,**仅 ==5
 ("PRELIVE_UPOWER")才走备流 builder**;其余值(0/2/3/0xffffffff)走标准 builder
 F-180141ed0(不带备流三参)。⇒ 无备流资格账号官方从不发 `backup_stream`,官方永不命中
-70002;插件此前无条件强发备流伴参 = 70002 唯一诱因。仓库 `startLive(with_backup=true)` 已
+70002;插件此前无条件强发备流伴参 = 70002 唯一诱因。仓库 `BiliApi::startLive()`(单按钮自动分派)已
 改为:先 `getVisibleMode()` 查资格,仅 `upower_privilege_type==5` 注 `src`+备流三参,
 ≠5 按官方普通请求发送并提示「无备流资格」(等同官方分派);资格查询失败则回退旧形态
 (强发+失败回退普通开播)。UI 相应合并为**单「开播」按钮**(自动判定,原「开播(含备流)」按钮移除)。
@@ -532,14 +541,20 @@ F-180141ed0(不带备流三参)。⇒ 无备流资格账号官方从不发 `back
   `vt[0xf8]`/`vt[0x100]` = room_id/area_v2/src/checked;`src` 值域 =
   `get_stream_by_roomId` 响应 `data.stream_line[].src`(E-19 §三)。
 - 解析: F-180144bb0 全文 E-11;字段簇 E-10 @0x1121fe3/@0x11220d6(窗口原文 E-08 §8)。
-- 仓库: 参数与官方对齐(checked/type/透传已补;备流请求默认恒注
-  `backup_stream=1&backup_stream_type=2&stream_biz=Paylive`,E-19 对齐 2026-11-26);
-  响应解析按 F-180144bb0 第2-10步移植
-  (protocols[]↔live_key 会话配对存储,但直连线路推流键=条目自带 `code`——
-  实网实证修正 2026-11-26,见第5步注、rtmp.new_link 存在性校验、need_face_auth 阻断、
-  notice 阻断 B4①、v_voucher 透出);第7步 `protocols_backup[]` 同规则,
-  备流与多协议线路**全部只读展示**(`config.stream_targets`,地址/推流码可复制),
-  插件不写 OBS 配置(ADR-0005)。**多路/xcode_stream 为明确不做项**(联播范围外)。
+- 仓库: 参数与官方对齐(checked/type 恒注;单「获取推流码」按钮 = `BiliApi::startLive()`,内部先
+  `getVisibleMode()` 判资格,==5 才走备流参数位,否则官方普通请求——E-22;`area_v2` 取服务端
+  room/GetInfo 回填的 `area_v2_id`,不再用本地固定默认值)。
+  **回退普通开播的条件**(2026-11-27 修正):仅当本次请求确实带了备流三参,且服务端回 70002/70003
+  (§1.2「获取推流地址失败」两码)才回退一次;未登录/风控/其它业务拒绝、人脸、notice/v_voucher 阻断
+  一律不重发(官方结果回调对 startLive 失败无回退重试)。旧版条件是 `with_backup`,无资格账号的
+  任何失败都会被原样重发一次。
+  响应解析抽为纯函数 `Bili::Parse::StartLiveEnvelope()`(`src/bili_parsers.*`,离线单测
+  `tests/bili_parsers_test.cpp`),严格按 F-180144bb0 第 1~12 步:protocols[] 逐条 StreamTarget,
+  直连线路推流键 = 条目自带 `code`(缺则回落 live_key,实网实证 2026-11-26),无 addr 条目丢弃;
+  `rtmp.new_link` 存在性校验后回落 `rtmp.addr/code`;`protocols_backup[]` 同规则追加;notice(成功分支
+  同样阻断)、v_voucher、need_face_auth、60024/60043 分派。全部线路**只读展示**
+  (`Config::stream_targets`,控制台可选中复制,侧栏有「复制」按钮),插件不写 OBS 配置(ADR-0005)。
+  **多路/xcode_stream 为明确不做项**(联播范围外)。
 
 ## 4.2 UpdatePreLiveInfo(播前改资料)
 
@@ -866,7 +881,9 @@ POST https://api.live.bilibili.com/room/v1/Room/stopLive
 服务端判定「直播姬身份」的实网生效项=**公共参数版本指纹 `version/platform/build`**(2026-11-26 实证:补齐公共参数组后停播成功时 access_key 仍为空⇒非空 access_key 非必要;详见 §1.2 60034 行)。官方每个 stopLive 确实带 access_key 键(FUN_180063f70 恒注,值=App OAuth token,web 登录用户可能为空);插件已对齐六项公共参数(2026-11-26),3.0.2 起恒发空值并移除 -101 的交换死链路(E-20)。
 
 ### 证据: builder F-1801482d0(URL xref 0x1801484e0, E-09 §3);公共参数 FUN_180063f70(E-15);
-仓库 `stopLive()` ✅(公共参数组已对齐;实网停播成功 2026-11-26)。
+仓库 `stopLive()` ✅(公共参数组已对齐;实网停播成功 2026-11-26)。UI 侧守卫:`obs_frontend_streaming_active()` 为真时
+不发停播(先提示在 OBS 停止推流,官方 CloseLiveRoomPre 顺序=先停流再停播);成功后清空本地线路表
+(密钥每场新生成),并立即做一次对账刷新。
 
 ## 6.2 停播收尾组
 
@@ -898,7 +915,9 @@ GET https://api.live.bilibili.com/live_stream/v1/StreamList/get_stream_by_roomId
 `stream_line[]` = CDN 线路表(`src` 字面量 0x181120655 实证;插件未消费)。
 
 ### 证据: builder FUN_18014bf40(E-09 §12), 派发解析回调 F-18014cf60。
-仓库 `getActiveStream()`(M1b 恢复首选源;读取 `data.rtmp`,公共参数已注入)。
+仓库 `getActiveStream()`(M1b 恢复首选源;读取 `data.rtmp`,公共参数已注入)。「找回推流码」成功后
+**替换**本地线路表为这一条 rtmp 线路(旧线路无法判断是否属于本场,SRT/备流线路没有再拉取的端点,
+留着只会误导)。
 
 ## 7.2 GetUpStreamRtmp
 

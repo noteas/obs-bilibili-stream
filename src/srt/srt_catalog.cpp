@@ -23,9 +23,12 @@ constexpr int kFallbackFormatVersion = 5;
 constexpr const char *kLegacyEntryNames[] = {"B站私有 SRT", "bilibili_srt", "bili_srt",
 					     "Bilibili Live - SRT | 哔哩哔哩直播 - SRT"};
 
+// 路径一律是 UTF-8(obs_module_get_config_path):流/文件系统入口都经 u8path,
+// 否则 MSVC 按 ANSI 代码页解码窄串,中文用户名目录下读写全部失败(实网反馈:
+// 开播成功但 OBS 服务列表里没有本插件条目)。
 std::string ReadFile(const std::string &path)
 {
-	std::ifstream in(path, std::ios::binary);
+	std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
 	if (!in)
 		return {};
 	std::ostringstream ss;
@@ -36,7 +39,7 @@ std::string ReadFile(const std::string &path)
 bool WriteFile(const std::string &path, const std::string &text)
 {
 	std::error_code ec;
-	const std::filesystem::path p(path);
+	const std::filesystem::path p = std::filesystem::u8path(path);
 	if (p.has_parent_path())
 		std::filesystem::create_directories(p.parent_path(), ec);
 	if (ec) {
@@ -44,16 +47,16 @@ bool WriteFile(const std::string &path, const std::string &text)
 		return false;
 	}
 
-	const std::filesystem::path tmp = p.string() + ".tmp";
+	const std::filesystem::path tmp = p.u8string() + ".tmp"; // UTF-8 窄串 → path
 	{
 		std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
 		if (!out) {
-			blog(LOG_WARNING, "[bvc-srt] 写入临时 services.json 失败: %s", tmp.string().c_str());
+			blog(LOG_WARNING, "[bvc-srt] 写入临时 services.json 失败: %s", tmp.u8string().c_str());
 			return false;
 		}
 		out << text;
 		if (!out.good()) {
-			blog(LOG_WARNING, "[bvc-srt] 写 services.json 失败: %s", tmp.string().c_str());
+			blog(LOG_WARNING, "[bvc-srt] 写 services.json 失败: %s", tmp.u8string().c_str());
 			return false;
 		}
 	}

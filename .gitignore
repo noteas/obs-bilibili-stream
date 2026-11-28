@@ -37,3 +37,4 @@ re/
 
 # CI/本地仿真:钉死 OBS 源码头面(cmake/linux/buildspec.cmake 解包目标)
 .deps/
+__pycache__/

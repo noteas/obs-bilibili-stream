@@ -30,6 +30,7 @@ add_library(
   ${CMAKE_PROJECT_NAME}
   MODULE
   src/bilibili_api.hpp
+  src/bili_parsers.hpp
   src/http_client.hpp
   src/plugin_utils.hpp
   src/md5.hpp
@@ -37,10 +38,12 @@ add_library(
   src/json11/json11.hpp
   src/core/config_manager.hpp
   src/core/qr_generator.hpp
+  src/core/session.hpp
   src/core/platform_util.hpp
   src/ui/console.hpp
   src/plugin-main.cpp
   src/bilibili_api.cpp
+  src/bili_parsers.cpp
   src/http_client.cpp
   src/plugin_utils.cpp
   src/md5.cpp
@@ -49,6 +52,7 @@ add_library(
   src/core/config_manager.cpp
   src/core/qr_generator.cpp
   src/core/platform_util.cpp
+  src/core/session.cpp
   src/ui/console.cpp
   src/srt/srt_catalog.hpp
   src/srt/srt_catalog.cpp
@@ -75,6 +79,26 @@ option(BUILD_TESTS "Build offline regression tests (ctest)" ON)
 if(BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+# 状态侧栏(ADR-0010):Qt6 Widgets。只用 Qt 自带信号 + lambda,不定义任何 Q_OBJECT
+# 子类,因此不需要 AUTOMOC/moc。关掉它插件退回「只有控制台」的 Qt-free 形态。
+option(ENABLE_DOCK "Status dock with Qt6 Widgets (ADR-0010)" ON)
+if(ENABLE_DOCK)
+  set(ENABLE_FRONTEND_API ON)
+  find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/ui/dock.hpp src/ui/dock.cpp)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ${CMAKE_DL_LIBS})
+  # Qt 默认给每个包含其头文件的库打「版本标签」(QtCore/qversiontagging.h):运行期 Qt
+  # 只要比编译期旧,dlopen 就直接失败(OBS 30/31 自带的 Qt 比本插件的构建 Qt 旧)。
+  # 本 .so 只用长期稳定的 Qt 公共 API,关掉标签,向下兼容性改由「未定义符号 ⊆ 最老
+  # 支持 Qt 的导出符号」审计保证(见 docs/adr/0010)。
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE BILI_ENABLE_DOCK QT_NO_VERSION_TAGGING)
+  # Qt 框架头在 Clang 下的已知噪音(与 obs-plugintemplate ENABLE_QT 分支同款)
+  target_compile_options(
+    ${CMAKE_PROJECT_NAME}
+    PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header;-Wno-comma>
+  )
 endif()
 
 if(ENABLE_FRONTEND_API)

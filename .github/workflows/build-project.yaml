@@ -112,6 +112,27 @@ jobs:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
 
+      # 侧栏(ADR-0010)让插件链接 Qt:插件二进制引用的 Qt 符号必须 ⊆ allowlist(每个符号都
+      # 对照过最老受支持 Qt 的导出表),否则旧版 OBS 自带的 Qt 会在 dlopen 时缺符号。
+      # 只在 24.04 审计:24.04 产物是承诺「OBS 30.0+(Qt 6.2.4+)」的那一份。26.04 的 Qt 6.10
+      # 头文件把 QObject::setProperty 实现为内联转发到 QObject::doSetProperty(Qt 6.6 起才导出,
+      # 6.2.4 没有),在 26.04 编出的 .so 天然只能加载到 Qt >= 6.6 的 OBS 上——它的 zip 本就
+      # 按发行版标注(连带 libobs 主版本),审计下限对它不成立,也不该把 doSetProperty 放进名单。
+      - name: Audit Qt symbols 🔍
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          python3 tests/check_qt_symbols.py --selftest
+          python3 tests/check_qt_symbols.py build_x86_64/bilibili-stream-for-obs.so
+
+      # 无头集成:真实 libobs + 真实 Qt(offscreen)+ 假 B站服务端,把编译出的 .so 装进来
+      # 走完登录/获取推流码/二次确认/找回/退出卸载全流程(libobs 热键子系统要 X display)。
+      # 只在 24.04 跑:CA 垫片对应发行版 libcurl 的 CA 装载入口。
+      - name: Headless integration harness 🧪
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: xvfb-run -a tests/harness/run_headless.sh build_x86_64/tests/bili_harness build_x86_64/bilibili-stream-for-obs.so
+
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
         with:
@@ -260,6 +281,15 @@ jobs:
         with:
           target: x64
           config: ${{ needs.check-event.outputs.config }}
+
+      - name: Audit Qt symbols 🔍
+        shell: pwsh
+        run: |
+          # 同 Ubuntu job:插件 .dll 引用的 Qt 符号必须 ⊆ tests/qt-symbol-allowlist.txt 并上
+          # tests/qt-symbol-allowlist-msvc.txt(MSVC 本地生成 vftable 等多出的引用,ADR-0010)。
+          $dll = Get-ChildItem -Path build_x64 -Recurse -Filter 'bilibili-stream-for-obs.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { Write-Error '.dll not found after build'; exit 1 }
+          python tests/check_qt_symbols.py $dll.FullName
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
