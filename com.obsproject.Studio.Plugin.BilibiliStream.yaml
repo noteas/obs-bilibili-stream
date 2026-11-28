@@ -9,14 +9,16 @@ build-options:
   prefix: /app/plugins/BilibiliStream
   strip: true
 
-# M4 起 fork 的 RTMP-over-SRT 栈编译期需要 libsrt 与 mbedTLS 头文件。OBS 运行时
-# (com.obsproject.Studio) 自带这两个库的 .so(srt v1.4.4 / mbedtls v2.27.0),但其
-# manifest 用 cleanup 删掉了 /include ⇒ 沙箱里只有库没有头。下面两个模块用与运行时
+# M4 起 fork 的 RTMP-over-SRT 栈编译期需要 libsrt、mbedTLS(及 jansson,见其模块)
+# 头文件。OBS 运行时 (com.obsproject.Studio) 自带这些库的 .so(srt v1.4.4 /
+# mbedtls v2.27.0 / jansson 2.14),但其 manifest 用 cleanup 删掉了 /include ⇒
+# 沙箱里只有库没有头。下面这些模块用与运行时
 # 完全相同的 tag/commit 各建一份(SONAME 一致),仅供插件编译链接用;打包阶段经顶层
 # cleanup 从扩展中剥离 .so,运行期 DT_NEEDED 由运行时自带的同名库满足,扩展不重复带库。
 cleanup:
   - /lib/libsrt.so*
   - /lib/libmbed*.so*
+  - /lib/libjansson.so*
   - /lib/pkgconfig
   - /lib/cmake
   - /include/srt
@@ -60,6 +62,23 @@ modules:
         tag: v1.4.4
         commit: 8b32f3734ff6af7cc7b0fef272591cb80a2d1aae
 
+  # jansson 与上面同源问题:OBS 运行时带 libjansson.so.4 与 .pc(版本 2.14),
+  # 但头文件被运行时 cleanup 删除 ⇒ fork 官方 Findjansson(REQUIRED 头文件)
+  # 在沙箱里失败(2026-11-28 CI 实证)。用运行时同版本各建一份仅供编译;
+  # 运行期 DT_NEEDED(libjansson.so.4,SONAME 一致)由运行时自带的库满足。
+  - name: jansson
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      - -DJANSSON_BUILD_SHARED_LIBS=ON
+      - -DJANSSON_BUILD_DOCS=OFF
+      - -DJANSSON_BUILD_TESTS=OFF
+    sources:
+      - type: git
+        url: https://github.com/akheron/jansson.git
+        tag: v2.14
+        commit: de5460cf7108b3161026a85800004e208e19f902
+
   - name: bilibili-stream-for-obs
     buildsystem: cmake-ninja
     builddir: true
@@ -82,8 +101,8 @@ modules:
           - build-flatpak
           - flatpak-repo
           - release
-    post-install:
-      - rm -rf ${FLATPAK_DEST}/obs-plugins
+    # 安装布局由 helpers(set_target_properties_plugin)直接落在扩展约定路径
+    # (${FLATPAK_DEST}/lib/obs-plugins + share/obs/obs-plugins/<name>),无需清理步骤。
 
   - name: appstream
     buildsystem: simple

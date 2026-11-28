@@ -58,8 +58,9 @@ runs:
         brew install --quiet zsh
         # Ubuntu 链接面 = 发行版 libobs-dev(符号子集齐全即可链;头面由
         # cmake/linux/buildspec.cmake 钉死覆盖,真 32.2 ABI 门槛在 flatpak
-        # job=flathub OBS 运行时)+ fork 的编译依赖(srt/mbedtls/jansson)
-        # + 侧栏的 Qt6 Widgets 开发包(ADR-0010)+ 无头集成 harness 要的 Xvfb。
+        # job=flathub OBS 运行时)+ fork 的编译依赖(srt/mbedtls/jansson,
+        # 其官方 Find 模块以 pkg-config 作首选提示源)+ 侧栏的 Qt6 Widgets
+        # 开发包(ADR-0010)+ 无头集成 harness 要的 Xvfb。
         sudo apt-get update
         sudo apt-get install -y \
           libcurl4-openssl-dev \
@@ -71,6 +72,7 @@ runs:
           libjansson-dev \
           libsimde-dev \
           zlib1g-dev \
+          pkg-config \
           cmake \
           build-essential \
           ccache

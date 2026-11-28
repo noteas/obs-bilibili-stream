@@ -31,6 +31,7 @@ void obs_log(int log_level, const char *format, ...) BILI_PRINTFATTR(2, 3);
 // 语序由各语言 ini 自行决定(不要把文案拆成前后缀在 C++ 里拼)。
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Utils {
@@ -40,14 +41,29 @@ inline std::string Text(const char *key)
 	return obs_module_text(key);
 }
 
+namespace detail {
+// snprintf 是 C 可变参:非平凡类型(如 std::string)直接透传是未定义行为
+// (clang -Wnon-pod-varargs 报错)。字符串实参统一降级为 const char*,
+// 生命周期覆盖整个调用(full-expression)。
+template<typename T> constexpr T &&TextArg(T &&v)
+{
+	return std::forward<T>(v);
+}
+
+template<typename C> const C *TextArg(const std::basic_string<C> &s)
+{
+	return s.c_str();
+}
+} // namespace detail
+
 template<typename... Args> std::string Text(const char *key, const Args &...args)
 {
 	const std::string fmt = obs_module_text(key);
-	const int n = std::snprintf(nullptr, 0, fmt.c_str(), args...);
+	const int n = std::snprintf(nullptr, 0, fmt.c_str(), detail::TextArg(args)...);
 	if (n <= 0)
 		return {};
 	std::vector<char> buf(static_cast<size_t>(n) + 1);
-	std::snprintf(buf.data(), buf.size(), fmt.c_str(), args...);
+	std::snprintf(buf.data(), buf.size(), fmt.c_str(), detail::TextArg(args)...);
 	return std::string(buf.data(), static_cast<size_t>(n));
 }
 
