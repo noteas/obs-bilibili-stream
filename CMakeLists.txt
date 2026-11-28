@@ -13,8 +13,8 @@ include(helpers)
 option(ENABLE_SRT_OUTPUT "Bilibili private SRT output (forked OBS RTMP stack, ADR-0008)" ON)
 option(ENABLE_HEVC "Enable HEVC in the forked RTMP stack" ON)
 
-configure_file(src/plugin-support.c.in src/plugin-support.c @ONLY)
-
+# plugin-support(PLUGIN_VERSION_* 元数据桥)由 helpers_common 自动配置并随
+# set_target_properties_plugin 链入,这里不需要手工 configure_file。
 execute_process(
   COMMAND git rev-parse --short HEAD
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -111,10 +111,10 @@ target_compile_definitions(
   PRIVATE "PLUGIN_VERSION_STR=\"${_version}\"" "GIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\""
 )
 
+# 安装布局不在此处手工 install:set_target_properties_plugin(helpers)按模板惯例统一处理
+#   Linux   → ${CMAKE_INSTALL_LIBDIR}/obs-plugins/*.so + share/obs/obs-plugins/<name>/
+#   Windows → <name>/bin/64bit/*.dll + <name>/data/(= 用户插件目录布局)
+# flatpak 扩展布局(/app/plugins/<Plugin>/{lib/obs-plugins,share/obs/...})同由 helpers 覆盖。
+# data/ 整目录随 helpers 分发(locale/*.ini = 界面文案,缺了 obs_module_text 只回显键名);
+# 运行期配置写 obs_module_config_path,与仓库 data/ 无关。
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
-
-# Install plugin and dependencies
-install(TARGETS ${CMAKE_PROJECT_NAME} LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/obs-plugins/64bit")
-# data 文件：OBS 模板 %module%/data。只装 locale（缺 locale 时 obs_module_text 只回显键名）；
-# data/config.json 是开发遗留样例，不随插件分发（运行期配置走 obs_module_config_path）。
-install(DIRECTORY data/locale/ DESTINATION "${CMAKE_INSTALL_PREFIX}/data/obs-plugins/${CMAKE_PROJECT_NAME}/locale")
