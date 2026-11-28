@@ -21,6 +21,8 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -61,6 +63,7 @@ constexpr int kRefreshIntervalMs = 60 * 1000; // 周期对账刷新(只在登录
 constexpr int kCopyHintMs = 2000;
 
 QPointer<QWidget> g_root;          // 内容根控件(OBSDock 的子控件)
+QPointer<QScrollArea> g_scroll;    // g_root 里的滚动层;内容控件在它的视口里
 QTimer *g_rebuild_timer = nullptr; // g_root 的子对象
 QTimer *g_refresh_timer = nullptr;
 QTimer *g_copy_hint_timer = nullptr;
@@ -488,10 +491,34 @@ QLayout *build_actions()
 	return box;
 }
 
+// ---------------------------------------------------------------------------
+// 滚动层
+// ---------------------------------------------------------------------------
+
+// 内容经 QScrollArea 显示:停靠区比内容矮时出纵向滚动条,控件保持自己的完整高度,不再被
+// 压扁、裁掉(把侧栏拉矮后「文本框全看不见」的根因,就是 QVBoxLayout 把内容硬塞进停靠区)。
+//
+// 不是 Q_OBJECT 子类(免 moc),只覆写 sizeHint:QScrollArea::sizeHint() 把高度封顶在 24 行
+// 字体高,而侧栏刚出现时 OBS 按 sizeHint 分配停靠区高度,封顶会让「已登录 + 线路」的内容
+// 一上来就得滚动。这里把高度提示放回内容自身的完整高度(与套滚动层之前一致),宽度沿用
+// 基类的上限。
+class DockScrollArea final : public QScrollArea {
+public:
+	explicit DockScrollArea(QWidget *parent) : QScrollArea(parent) {}
+
+	QSize sizeHint() const override
+	{
+		const QSize base = QScrollArea::sizeHint();
+		const QWidget *content = widget();
+		// 无边框(NoFrame):内容的 sizeHint 就是滚动层要的全部高度。
+		return content ? QSize(base.width(), std::max(base.height(), content->sizeHint().height())) : base;
+	}
+};
+
 QWidget *build_content()
 {
 	Core::Session &s = session();
-	QWidget *content = new QWidget(g_root);
+	QWidget *content = new QWidget; // 归滚动层所有(setWidget 接管父对象)
 	QVBoxLayout *box = new QVBoxLayout(content);
 	box->setContentsMargins(8, 8, 8, 8);
 	box->setSpacing(8);
@@ -514,19 +541,19 @@ QWidget *build_content()
 
 void rebuild()
 {
-	if (!g_root)
+	QScrollArea *scroll = g_scroll;
+	if (!scroll)
 		return;
 	g_rendered_signature = visible_signature();
 	g_copy_hint = nullptr;
-	if (QLayout *layout = g_root->layout()) {
-		while (QLayoutItem *item = layout->takeAt(0)) {
-			// 旧内容延迟销毁:此刻可能还有某个控件的信号在调用栈上。
-			if (QWidget *old = item->widget())
-				old->deleteLater();
-			delete item;
-		}
-		g_root->layout()->addWidget(build_content());
-	}
+	// 保留纵向滚动位置:用户在矮停靠区里滚到底去点「刷新」,状态变化重建内容后不能被弹回
+	// 顶部。setWidget 会把滚动条归零,新内容的范围在它内部同步算好,这里再设回去;新内容
+	// 变矮时由滚动条自己夹到新范围。
+	const int keep = scroll->verticalScrollBar()->value();
+	if (QWidget *old = scroll->takeWidget())
+		old->deleteLater(); // 旧内容延迟销毁:此刻可能还有某个控件的信号在调用栈上
+	scroll->setWidget(build_content());
+	scroll->verticalScrollBar()->setValue(keep);
 }
 
 struct DockListener : Core::Session::Listener {
@@ -587,6 +614,15 @@ bool DockCreate()
 	root->layout()->setContentsMargins(0, 0, 0, 0);
 	g_root = root;
 
+	// 内容一律经滚动层显示(见 DockScrollArea):无边框,停靠区多高/多窄都由它兜底,
+	// 宽度不够时(线路单行框有最小宽度)出横向滚动条而不是裁掉。
+	QScrollArea *scroll = new DockScrollArea(root);
+	scroll->setFrameShape(QFrame::NoFrame);
+	scroll->setWidgetResizable(true);
+	scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+	root->layout()->addWidget(scroll);
+	g_scroll = scroll;
+
 	g_rebuild_timer = new QTimer(root);
 	g_rebuild_timer->setSingleShot(true);
 	QObject::connect(g_rebuild_timer, &QTimer::timeout, root, [] { rebuild(); });
@@ -607,6 +643,7 @@ bool DockCreate()
 	if (!add(kDockId, Utils::Text("Dock.Title").c_str(), root)) {
 		// id 已被占用(重复库?):OBS 没有接管控件,自己回收。
 		g_root = nullptr;
+		g_scroll = nullptr;
 		g_rebuild_timer = g_refresh_timer = g_copy_hint_timer = nullptr;
 		root->deleteLater();
 		obs_log(LOG_ERROR, "侧栏 id「%s」已被占用,侧栏未创建", kDockId);
@@ -630,6 +667,7 @@ void DockDestroy()
 	}
 	Core::Session::instance().remove_listener(&g_listener);
 	QWidget *root = g_root;
+	g_scroll = nullptr;
 	g_rebuild_timer = g_refresh_timer = g_copy_hint_timer = nullptr;
 	g_copy_hint = nullptr;
 	g_rendered_signature.clear();
