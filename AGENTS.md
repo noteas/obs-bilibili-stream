@@ -56,7 +56,7 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 - **UI 只读 Session**:新增界面状态一律进 `Core::Session`,视图(控制台/侧栏)不持有业务状态;Qt 只允许出现在 `src/ui/dock.cpp`;不要在控件信号的调用栈里 delete 控件(重建一律经 0ms 单发定时器)
 - **构建失败时不要吞输出**(2026-11-27 教训:把 make 输出丢进 /dev/null,链接失败没被发现,拿旧 .so 跑了一轮测试得到假结论)
 - **跨平台原则**:主仓与 `third_party/` fork 的全部 C/C++ 在 Linux(主开发平台)与 Windows(MSVC,官方 OBS 构建链)都必须可编译、可测试;平台差异(套接字 API、线程句柄、printf 格式符、动态库导出等)只隔离在薄的编译期分支层,主体逻辑禁止平台专有写法;libsrt 等第三方依赖在两端都要有对应链接路径(Windows 官方 OBS 自带 srt.dll)。拿不准写法时,照 OBS 上游同场景的可移植写法
-- **零警告原则**:Release/Debug 构建与全部测试一律 **0 警告**;新代码与被打补丁的上游代码都不许新增警告,更禁止用抑制警告的编译选项掩盖问题;第三方 fork 上游文件自带的警告不强制清理(保持 diff 最小),但必须确认无害
+- **零警告原则**(2026-11-28 强化):Release/Debug 构建与全部测试一律 **0 警告**、**0 CMake 警告**(configure 输出不得出现 `CMake Warning`);范围覆盖本仓代码 + `third_party/obs-rtmp-srt` fork 的**全部文件(含上游原文)**——fork 文件有警告就用最小补丁修掉(显式类型转换/守卫),禁止用抑制警告的编译选项掩盖问题。验证必须双工具链:GCC(CI/本机)与 clang(clang-18 同 flag 扫 `-Wshorten-64-to-32`/`-Wcomma`/`-Wnon-pod-varargs`,flatpak 工具链即 clang,GCC 看不见这类);MSVC 警告随 Windows CI 清零。fork 外的系统第三方依赖不在整治范围。改动「逗号表达式拆语句」这类结构补丁时必须核对循环体大括号(单语句体拆分会改变语义,2026-11-28 实测教训)
 
 ## 构建
 
@@ -74,3 +74,5 @@ Ghidra 12.2: /home/zxd/tools/ghidra_12.2_PUBLIC，全套套件，含文档。使
 ## 安装，运行
 
 将二进制放在~/.config/obs-studio/plugins/bilibili-stream-for-obs/bin/64bit/，并将 `data/locale/` 放在 `~/.config/obs-studio/plugins/bilibili-stream-for-obs/data/locale/`（界面文案 i18n 必需，缺了 obs_module_text 只回显键名），OBS将自动加载。加载后:Docks 菜单出现侧栏「B站直播」(首次自动显示一次),工具菜单出现「B站直播控制台」。
+
+发布 zip(三平台统一):顶层 = 插件名目录 `bilibili-stream-for-obs/`(内含 `bin/64bit/` + `data/locale/`),解压到用户 plugins 根即用;不是裸 bin/、data/ 两层(插件名以模块名 bilibili-stream-for-obs 为准,OBS %module% 模板按此目录名加载,非仓库名)。
